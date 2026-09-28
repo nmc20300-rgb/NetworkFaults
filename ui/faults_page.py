@@ -15,7 +15,29 @@ from PySide6.QtWidgets import (
     QDateTimeEdit, QSpinBox, QCalendarWidget, QScrollArea
 )
 
-from database import get_connection
+from database import get_connection, write_audit_log
+
+
+def fault_audit_data(fault):
+    """Return a JSON-friendly snapshot of the persisted fault fields."""
+    if not fault:
+        return {}
+    keys = (
+        "id", "fault_number", "entry_date", "building_id", "device_id",
+        "user_name", "receiver_name", "fault_description", "repair_actions",
+        "spare_parts", "technician", "priority", "status", "repair_date",
+        "delivery_date", "notes", "created_at", "updated_at",
+    )
+    snapshot = {}
+    for key in keys:
+        try:
+            value = fault[key]
+        except (KeyError, IndexError, TypeError):
+            continue
+        if hasattr(value, "isoformat"):
+            value = value.isoformat()
+        snapshot[key] = value
+    return snapshot
 
 
 APP_STYLE = """
@@ -1677,10 +1699,14 @@ tbody tr:nth-child(even) td {{
 
 
 class FaultsPage(QWidget):
+    PAGE_SIZE = 50
+
     def __init__(self, current_user=None):
         super().__init__()
 
         self.current_user = current_user or {}
+        self._page = 0
+        self._total = 0
 
         self.setup_ui()
         self.load_building_filter()
@@ -1879,7 +1905,7 @@ class FaultsPage(QWidget):
         )
 
         self.search_box.textChanged.connect(
-            self.load_faults
+            self._reset_page_and_load_faults
         )
 
         search_layout.addWidget(
@@ -1936,7 +1962,7 @@ class FaultsPage(QWidget):
         ])
 
         self.status_filter.currentIndexChanged.connect(
-            self.load_faults
+            self._reset_page_and_load_faults
         )
 
         filter_layout.addWidget(
@@ -1966,7 +1992,7 @@ class FaultsPage(QWidget):
         ])
 
         self.priority_filter.currentIndexChanged.connect(
-            self.load_faults
+            self._reset_page_and_load_faults
         )
 
         filter_layout.addWidget(
@@ -1992,7 +2018,7 @@ class FaultsPage(QWidget):
         )
 
         self.building_filter.currentIndexChanged.connect(
-            self.load_faults
+            self._reset_page_and_load_faults
         )
 
         filter_layout.addWidget(
@@ -2095,6 +2121,47 @@ class FaultsPage(QWidget):
         table_layout.addWidget(
             self.table
         )
+
+        # =========================================================
+        # Pagination
+        # =========================================================
+
+        pagination_row = QHBoxLayout()
+
+        self.stats_label = QLabel("")
+        self.stats_label.setStyleSheet(
+            "color: #64748b; font-size: 11px;"
+        )
+        pagination_row.addWidget(
+            self.stats_label
+        )
+        pagination_row.addStretch()
+
+        self.previous_button = QPushButton("◀  السابق")
+        self.previous_button.setObjectName("secondaryButton")
+        self.previous_button.setMinimumHeight(32)
+        self.previous_button.clicked.connect(
+            self._previous_page
+        )
+
+        self.page_label = QLabel("صفحة 1 / 1")
+        self.page_label.setAlignment(Qt.AlignCenter)
+        self.page_label.setStyleSheet(
+            "font-weight: 700; min-width: 80px;"
+        )
+
+        self.next_button = QPushButton("التالي  ▶")
+        self.next_button.setObjectName("secondaryButton")
+        self.next_button.setMinimumHeight(32)
+        self.next_button.clicked.connect(
+            self._next_page
+        )
+
+        pagination_row.addWidget(self.previous_button)
+        pagination_row.addWidget(self.page_label)
+        pagination_row.addWidget(self.next_button)
+
+        table_layout.addLayout(pagination_row)
 
         main_layout.addWidget(
             table_card,
@@ -2223,6 +2290,7 @@ class FaultsPage(QWidget):
             False
         )
 
+        self._page = 0
         self.load_faults()
 
     def show_reports(self):
@@ -2304,8 +2372,8 @@ class FaultsPage(QWidget):
         cursor = connection.cursor()
 
         cursor.execute(
-            "SELECT TOP 1 id FROM buildings "
-            "WHERE name = ?",
+            "SELECT id FROM buildings "
+            "WHERE name = ? LIMIT 1",
             (building_name.strip(),)
         )
 
@@ -2393,8 +2461,8 @@ class FaultsPage(QWidget):
             )
 
             cursor.execute(
-                "SELECT TOP 1 1 FROM faults "
-                "WHERE fault_number = ?",
+                "SELECT 1 FROM faults "
+                "WHERE fault_number = ? LIMIT 1",
                 (fault_number,)
             )
 
@@ -2822,6 +2890,24 @@ class FaultsPage(QWidget):
                 len(data_rows)
             )
 
+            write_audit_log(
+                user=self.current_user,
+                action="استيراد",
+                module_name="الأعطال",
+                description=(
+                    f"تم استيراد الأعطال من ملف Excel: {Path(file_path).name}"
+                    f"\nالأعطال المضافة: {imported}"
+                    f"\nالصفوف المتجاهلة: {skipped}"
+                    f"\nإجمالي الصفوف: {len(data_rows)}"
+                ),
+                new_values={
+                    "file": Path(file_path).name,
+                    "total_rows": len(data_rows),
+                    "imported_faults": imported,
+                    "skipped_rows": skipped,
+                },
+            )
+
             self.load_building_filter()
             self.load_faults()
 
@@ -2852,6 +2938,24 @@ class FaultsPage(QWidget):
     # =============================================================
     # تحميل الأعطال + الفلاتر
     # =============================================================
+
+    def _reset_page_and_load_faults(self, *_args):
+        self._page = 0
+        self.load_faults()
+
+    def _previous_page(self, _checked=False):
+        if self._page > 0:
+            self._page -= 1
+            self.load_faults()
+
+    def _next_page(self, _checked=False):
+        total_pages = max(
+            1,
+            (self._total + self.PAGE_SIZE - 1) // self.PAGE_SIZE,
+        )
+        if self._page < total_pages - 1:
+            self._page += 1
+            self.load_faults()
 
     def load_faults(self):
         search = (
@@ -2975,11 +3079,23 @@ class FaultsPage(QWidget):
 
         connection.close()
 
+        self._total = len(faults)
+        total_pages = max(
+            1,
+            (self._total + self.PAGE_SIZE - 1) // self.PAGE_SIZE,
+        )
+        self._page = min(
+            self._page,
+            total_pages - 1,
+        )
+        start = self._page * self.PAGE_SIZE
+        visible_faults = faults[start:start + self.PAGE_SIZE]
+
         self.table.setRowCount(
             0
         )
 
-        for fault in faults:
+        for fault in visible_faults:
             row = self.table.rowCount()
 
             self.table.insertRow(
@@ -3013,6 +3129,20 @@ class FaultsPage(QWidget):
                     column,
                     item
                 )
+
+        self.page_label.setText(
+            f"صفحة {self._page + 1} / {total_pages}"
+        )
+        self.previous_button.setEnabled(
+            self._page > 0
+        )
+        self.next_button.setEnabled(
+            self._page < total_pages - 1
+        )
+        self.stats_label.setText(
+            f"إجمالي الأعطال: {self._total}  |  "
+            f"المعروض في الصفحة: {len(visible_faults)}"
+        )
 
     # =============================================================
     # إضافة عطل
@@ -3143,6 +3273,18 @@ class FaultsPage(QWidget):
             )
         )
 
+        cursor.execute(
+            """
+            SELECT TOP 1 id
+            FROM faults
+            WHERE fault_number = ?
+            ORDER BY id DESC
+            """,
+            (data["fault_number"],)
+        )
+        inserted_fault = cursor.fetchone()
+        new_fault_id = inserted_fault["id"] if inserted_fault else None
+
         # خصم المخزون وتسجيل حركة الصرف
         if data["spare_part_id"]:
             cursor.execute(
@@ -3200,6 +3342,18 @@ class FaultsPage(QWidget):
         connection.commit()
         connection.close()
 
+        audit_new_values = dict(data)
+        audit_new_values["building_id"] = building_id
+        audit_new_values["id"] = new_fault_id
+        write_audit_log(
+            user=self.current_user,
+            action="إضافة",
+            module_name="الأعطال",
+            record_id=new_fault_id,
+            description=f"تم تسجيل العطل رقم {data['fault_number']}",
+            new_values=audit_new_values,
+        )
+
         self.load_faults()
 
     # =============================================================
@@ -3244,6 +3398,7 @@ class FaultsPage(QWidget):
         )
 
         old_fault = cursor.fetchone()
+        old_values = fault_audit_data(old_fault)
 
         connection.close()
 
@@ -3489,6 +3644,33 @@ class FaultsPage(QWidget):
             connection.commit()
             connection.close()
 
+            audit_new_values = dict(data)
+            audit_new_values.update({
+                "id": fault_id,
+                "fault_number": old_fault["fault_number"],
+                "building_id": data["building_id"],
+                "linked_spare_part_movement": {
+                    "spare_part_id": new_spare_id,
+                    "quantity": new_qty if new_spare_id else 0,
+                },
+            })
+            old_values["linked_spare_part_movement"] = {
+                "spare_part_id": old_part_id,
+                "quantity": old_qty,
+            }
+            write_audit_log(
+                user=self.current_user,
+                action="تعديل",
+                module_name="الأعطال",
+                record_id=fault_id,
+                description=(
+                    f"تم تعديل بيانات العطل رقم "
+                    f"{old_fault['fault_number']}"
+                ),
+                old_values=old_values,
+                new_values=audit_new_values,
+            )
+
             self.load_faults()
 
             QMessageBox.information(
@@ -3545,17 +3727,12 @@ class FaultsPage(QWidget):
         cursor = connection.cursor()
 
         cursor.execute(
-            """
-            SELECT
-                id,
-                fault_number
-            FROM faults
-            WHERE id = ?
-            """,
+            "SELECT * FROM faults WHERE id = ?",
             (fault_id,)
         )
 
         fault = cursor.fetchone()
+        old_values = fault_audit_data(fault)
 
         if not fault:
             connection.close()
@@ -3602,6 +3779,13 @@ class FaultsPage(QWidget):
             )
 
             movement = cursor.fetchone()
+            old_values["linked_spare_part_movement"] = (
+                {
+                    "spare_part_id": movement["spare_part_id"],
+                    "quantity": movement["quantity"],
+                }
+                if movement else None
+            )
 
             if movement:
                 cursor.execute(
@@ -3663,6 +3847,21 @@ class FaultsPage(QWidget):
 
             connection.commit()
             connection.close()
+
+            write_audit_log(
+                user=self.current_user,
+                action="حذف",
+                module_name="الأعطال",
+                record_id=fault_id,
+                description=(
+                    f"تم حذف العطل رقم {fault['fault_number']}"
+                ),
+                old_values=old_values,
+                new_values={
+                    "deleted": True,
+                    "stock_returned": bool(old_values.get("linked_spare_part_movement")),
+                },
+            )
 
             self.load_faults()
 

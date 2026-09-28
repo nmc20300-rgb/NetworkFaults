@@ -62,6 +62,13 @@ class PermissionsPage(QWidget):
             ("system.login", "تسجيل الدخول"),
             ("system.logout", "تسجيل الخروج"),
         ],
+        "الأحبار": [
+            ("ink.view",                 "عرض الأحبار"),
+            ("ink.add",                  "إضافة سجل أحبار"),
+            ("ink.edit",                 "تعديل سجل أحبار"),
+            ("ink.delete",               "حذف سجل أحبار"),
+            ("ink.org_structure.manage", "إدارة الهيكل التنظيمي"),
+        ],
     }
 
     def __init__(self, current_user=None, parent=None):

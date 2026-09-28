@@ -499,6 +499,13 @@ def initialize_database():
         "spare_parts",
         "spare_part_movements",
         "audit_logs",
+        # نظام الأحبار (اختياري - لا يوقف التشغيل لو لم تُنشأ بعد)
+    ]
+
+    # الجداول الاختيارية للأحبار - لا توقف التشغيل لو لم تُنشأ
+    _optional_tables = [
+        "org_units",
+        "ink_transactions",
     ]
 
     missing_tables = []

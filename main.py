@@ -1,771 +1,246 @@
-import sys
 import os
+import sys
 
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QStackedWidget,
     QFrame,
     QGraphicsDropShadowEffect,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
     QMessageBox,
+    QPushButton,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
-from PySide6.QtCore import Qt, QSize, Signal
-from PySide6.QtGui import QColor, QFont, QFontDatabase
-
-from database import (
-    initialize_database,
-    write_audit_log,
-)
-
-from ui.theme import Theme
-
-from ui.login_page import LoginPage
+from database import initialize_database, write_audit_log
+from ui.arabic_translator import setup_arabic_localization
 from ui.dashboard_page import DashboardPage
 from ui.devices_page import DevicesPage
 from ui.faults_page import FaultsPage
-from ui.spare_parts_page import SparePartsPage
-from ui.users_page import UsersPage
-from ui.permissions_page import PermissionsPage
+from ui.ink_page import InkPage
+from ui.login_page import LoginPage
 from ui.logs_page import LogsPage
+from ui.org_structure_page import OrgStructurePage
+from ui.permissions_page import PermissionsPage
+from ui.spare_parts_page import SparePartsPage
+from ui.theme import Theme
+from ui.users_page import UsersPage
 
 
 class MainWindow(QMainWindow):
-
     logout_requested = Signal()
 
     def __init__(self, user):
-
         super().__init__()
 
-        self.current_user = user
+        self.current_user = user or {}
 
-        self.setWindowTitle(
-            "الشبكة - نظام إدارة الأجهزة والأعطال"
-        )
-
+        self.setWindowTitle("الشبكة - نظام إدارة الأجهزة والأعطال")
         self.resize(1400, 850)
-
-        self.setLayoutDirection(
-            Qt.RightToLeft
-        )
+        self.setMinimumSize(1100, 700)
+        self.setLayoutDirection(Qt.RightToLeft)
 
         central = QWidget()
+        central.setObjectName("mainCentralWidget")
+        self.setCentralWidget(central)
 
-        self.setCentralWidget(
-            central
-        )
+        main_layout = QHBoxLayout(central)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        main_layout = QHBoxLayout(
-            central
-        )
+        self.sidebar = self.build_sidebar()
+        main_layout.addWidget(self.sidebar)
 
-        main_layout.setContentsMargins(
-            0, 0, 0, 0
-        )
+        self.pages = QStackedWidget()
+        self.pages.setObjectName("mainPages")
+        main_layout.addWidget(self.pages, 1)
 
-        main_layout.setSpacing(
-            0
-        )
+        self.build_pages()
+        self.build_navigation()
+        self.apply_permissions()
+        self.show_page(0)
 
-        # =================================================
-        # Sidebar
-        # =================================================
+    # =========================================================
+    # Sidebar
+    # =========================================================
 
+    def build_sidebar(self):
         sidebar = QWidget()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(260)
+        sidebar.setFixedWidth(292)
+        sidebar.setLayoutDirection(Qt.RightToLeft)
 
-        sidebar_layout = QVBoxLayout(
-            sidebar
-        )
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(18, 22, 18, 18)
+        sidebar_layout.setSpacing(0)
 
-        sidebar_layout.setContentsMargins(
-            0, 0, 0, 0
-        )
-
-        sidebar_layout.setSpacing(
-            0
-        )
-
-        # -------------------------------------------------
-        # Logo / Brand Area
-        # -------------------------------------------------
-
+        # -----------------------------------------------------
+        # Brand
+        # -----------------------------------------------------
         brand_widget = QWidget()
-        brand_widget.setObjectName(
-            "sidebarBrand"
-        )
+        brand_widget.setObjectName("sidebarBrand")
 
-        brand_layout = QVBoxLayout(
-            brand_widget
-        )
+        brand_layout = QHBoxLayout(brand_widget)
+        brand_layout.setContentsMargins(4, 0, 4, 0)
+        brand_layout.setSpacing(11)
 
-        brand_layout.setContentsMargins(
-            20, 28, 20, 20
-        )
+        brand_icon = QLabel()
+        brand_icon.setObjectName("brandIcon")
+        brand_icon.setAlignment(Qt.AlignCenter)
+        brand_icon.setFixedSize(58, 58)
 
-        brand_layout.setSpacing(
-            4
+        # تحميل اللوجو من assets بطريقة مستقلة عن مكان تشغيل البرنامج.
+        logo_path = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "assets",
+            "nmc_logo3.png",
         )
+        logo_pixmap = QPixmap(logo_path)
 
-        brand_layout.setAlignment(
-            Qt.AlignCenter
-        )
+        if not logo_pixmap.isNull():
+            brand_icon.setPixmap(
+                logo_pixmap.scaled(
+                    48,
+                    48,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+            )
+        else:
+            # بديل احتياطي في حالة عدم وجود ملف الصورة.
+            brand_icon.setText("NMC")
 
-        icon_badge = QLabel("📡")
-        icon_badge.setObjectName(
-            "brandIcon"
-        )
+        brand_text_layout = QVBoxLayout()
+        brand_text_layout.setContentsMargins(0, 0, 0, 0)
+        brand_text_layout.setSpacing(2)
 
-        icon_badge.setAlignment(
-            Qt.AlignCenter
-        )
+        sidebar_title = QLabel("الشبكة")
+        sidebar_title.setObjectName("sidebarTitle")
 
-        brand_layout.addWidget(
-            icon_badge
-        )
+        sidebar_subtitle = QLabel("نظام إدارة الأجهزة والدعم الفني")
+        sidebar_subtitle.setObjectName("sidebarSubtitle")
+        sidebar_subtitle.setWordWrap(True)
 
-        title = QLabel("الشبكة")
-        title.setObjectName(
-            "sidebarTitle"
-        )
+        brand_text_layout.addWidget(sidebar_title)
+        brand_text_layout.addWidget(sidebar_subtitle)
 
-        title.setAlignment(
-            Qt.AlignCenter
-        )
+        brand_layout.addWidget(brand_icon)
+        brand_layout.addLayout(brand_text_layout, 1)
+        sidebar_layout.addWidget(brand_widget)
 
-        brand_layout.addWidget(
-            title
-        )
+        sidebar_layout.addSpacing(25)
 
-        subtitle = QLabel(
-            "نظام إدارة الأجهزة والأعطال"
-        )
-
-        subtitle.setObjectName(
-            "sidebarSubtitle"
-        )
-
-        subtitle.setAlignment(
-            Qt.AlignCenter
-        )
-
-        subtitle.setWordWrap(
-            True
-        )
-
-        brand_layout.addWidget(
-            subtitle
-        )
-
-        sidebar_layout.addWidget(
-            brand_widget
-        )
-
-        # -------------------------------------------------
+        # -----------------------------------------------------
         # User Card
-        # -------------------------------------------------
-
-        user_name = (
-            user.get("full_name")
-            or user.get("username")
-        )
-
-        role_name = user.get(
-            "role_name",
-            ""
-        )
+        # -----------------------------------------------------
+        user_card_wrapper = QWidget()
+        user_card_wrapper.setObjectName("userCardWrapper")
 
         user_card = QWidget()
+        user_card.setObjectName("userCard")
 
-        user_card.setObjectName(
-            "userCard"
+        user_layout = QHBoxLayout(user_card)
+        user_layout.setContentsMargins(12, 12, 12, 12)
+        user_layout.setSpacing(10)
+
+        user_avatar = QLabel("●")
+        user_avatar.setObjectName("userAvatar")
+        user_avatar.setAlignment(Qt.AlignCenter)
+        user_avatar.setFixedSize(44, 44)
+
+        user_text_layout = QVBoxLayout()
+        user_text_layout.setContentsMargins(0, 0, 0, 0)
+        user_text_layout.setSpacing(3)
+
+        display_name = (
+            self.current_user.get("full_name")
+            or self.current_user.get("name")
+            or self.current_user.get("username")
+            or "مستخدم النظام"
         )
 
-        user_card_layout = QHBoxLayout(
-            user_card
+        role_name = (
+            self.current_user.get("role_name")
+            or self.current_user.get("role")
+            or self.current_user.get("role_code")
+            or "مستخدم"
         )
 
-        user_card_layout.setContentsMargins(
-            16, 12, 16, 12
-        )
+        user_name = QLabel(str(display_name))
+        user_name.setObjectName("userName")
+        user_name.setWordWrap(True)
 
-        user_card_layout.setSpacing(
-            12
-        )
+        user_role = QLabel(str(role_name))
+        user_role.setObjectName("userRole")
 
-        avatar = QLabel("👤")
+        user_text_layout.addWidget(user_name)
+        user_text_layout.addWidget(user_role)
 
-        avatar.setObjectName(
-            "userAvatar"
-        )
+        user_layout.addWidget(user_avatar)
+        user_layout.addLayout(user_text_layout, 1)
 
-        avatar.setAlignment(
-            Qt.AlignCenter
-        )
+        wrapper_layout = QVBoxLayout(user_card_wrapper)
+        wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        wrapper_layout.addWidget(user_card)
+        sidebar_layout.addWidget(user_card_wrapper)
 
-        avatar.setFixedSize(
-            QSize(40, 40)
-        )
+        sidebar_layout.addSpacing(24)
 
-        user_card_layout.addWidget(
-            avatar
-        )
-
-        user_text_widget = QWidget()
-
-        user_text_layout = QVBoxLayout(
-            user_text_widget
-        )
-
-        user_text_layout.setContentsMargins(
-            0, 0, 0, 0
-        )
-
-        user_text_layout.setSpacing(
-            2
-        )
-
-        user_name_label = QLabel(
-            user_name
-        )
-
-        user_name_label.setObjectName(
-            "userName"
-        )
-
-        user_name_label.setAlignment(
-            Qt.AlignLeading | Qt.AlignVCenter
-        )
-
-        user_role_label = QLabel(
-            role_name
-        )
-
-        user_role_label.setObjectName(
-            "userRole"
-        )
-
-        is_role_rtl = any("\u0600" <= c <= "\u06FF" for c in role_name)
-        role_align = Qt.AlignLeading if is_role_rtl else Qt.AlignRight
-        user_role_label.setAlignment(
-            role_align | Qt.AlignVCenter
-        )
-
-        user_text_layout.addWidget(
-            user_name_label
-        )
-
-        user_text_layout.addWidget(
-            user_role_label
-        )
-
-        user_card_layout.addWidget(
-            user_text_widget
-        )
-
-        user_card_wrapper = QWidget()
-
-        user_card_wrapper.setObjectName(
-            "userCardWrapper"
-        )
-
-        user_card_wrapper_layout = QVBoxLayout(
-            user_card_wrapper
-        )
-
-        user_card_wrapper_layout.setContentsMargins(
-            16, 0, 16, 16
-        )
-
-        user_card_wrapper_layout.addWidget(
-            user_card
-        )
-
-        sidebar_layout.addWidget(
-            user_card_wrapper
-        )
-
-        # -------------------------------------------------
-        # Section Label
-        # -------------------------------------------------
-
-        nav_section_label = QLabel(
-            "القائمة الرئيسية"
-        )
-
-        nav_section_label.setObjectName(
-            "sectionLabel"
-        )
-
-        nav_section_label.setAlignment(
-            Qt.AlignLeading | Qt.AlignVCenter
-        )
-
-        nav_section_label.setContentsMargins(
-            20, 8, 20, 6
-        )
-
-        sidebar_layout.addWidget(
-            nav_section_label
-        )
-
-        # -------------------------------------------------
-        # Navigation Buttons
-        # -------------------------------------------------
+        # -----------------------------------------------------
+        # Navigation
+        # -----------------------------------------------------
+        section_label = QLabel("التشغيل اليومي")
+        section_label.setObjectName("sectionLabel")
+        sidebar_layout.addWidget(section_label)
+        sidebar_layout.addSpacing(7)
 
         nav_container = QWidget()
+        nav_container.setObjectName("navContainer")
+        nav_layout = QVBoxLayout(nav_container)
+        nav_layout.setContentsMargins(0, 0, 0, 0)
+        nav_layout.setSpacing(6)
 
-        nav_container.setObjectName(
-            "navContainer"
-        )
+        self.btn_home = self.create_nav_button("", "الرئيسية")
+        self.btn_devices = self.create_nav_button("", "الأجهزة")
+        self.btn_faults = self.create_nav_button("", "الأعطال")
+        self.btn_spare_parts = self.create_nav_button("", "قطع الغيار")
+        self.btn_ink = self.create_nav_button("", "الأحبار")
 
-        nav_layout = QVBoxLayout(
-            nav_container
-        )
-
-        nav_layout.setContentsMargins(
-            12, 4, 12, 4
-        )
-
-        nav_layout.setSpacing(
-            4
-        )
-
-        self.btn_home = QPushButton(
-            " الرئيسية"
-        )
-
-        self.btn_devices = QPushButton(
-            "الأجهزة"
-        )
-
-        self.btn_faults = QPushButton(
-            " الأعطال"
-        )
-
-        self.btn_spare_parts = QPushButton(
-            "  قطع الغيار"
-        )
-
-        self.btn_users = QPushButton(
-            " إدارة المستخدمين"
-        )
-
-        self.btn_permissions = QPushButton(
-            " الصلاحيات"
-        )
-
-        self.btn_logs = QPushButton(
-            " سجل العمليات"
-        )
-
-        buttons = (
+        for button in (
             self.btn_home,
             self.btn_devices,
             self.btn_faults,
             self.btn_spare_parts,
+            self.btn_ink,
+        ):
+            nav_layout.addWidget(button)
+
+        management_label = QLabel("الإدارة والمتابعة")
+        management_label.setObjectName("sectionLabel")
+        nav_layout.addSpacing(14)
+        nav_layout.addWidget(management_label)
+        nav_layout.addSpacing(5)
+
+        self.btn_org_structure = self.create_nav_button("", "الهيكل التنظيمي")
+        self.btn_users = self.create_nav_button("", "إدارة المستخدمين")
+        self.btn_permissions = self.create_nav_button("", "الصلاحيات")
+        self.btn_logs = self.create_nav_button("", "سجل العمليات")
+
+        for button in (
+            self.btn_org_structure,
             self.btn_users,
             self.btn_permissions,
             self.btn_logs,
-        )
-
-        for button in buttons:
-
-            button.setObjectName(
-                "navButton"
-            )
-
-            button.setCheckable(
-                True
-            )
-
-            button.setAutoExclusive(
-                True
-            )
-
-            button.setCursor(
-                Qt.PointingHandCursor
-            )
-
-            button.setMinimumHeight(
-                46
-            )
-
-            nav_layout.addWidget(
-                button
-            )
-
-        sidebar_layout.addWidget(
-            nav_container
-        )
-
-        sidebar_layout.addStretch()
-
-        # -------------------------------------------------
-        # Footer / Logout
-        # -------------------------------------------------
-
-        footer_widget = QWidget()
-
-        footer_widget.setObjectName(
-            "sidebarFooterWidget"
-        )
-
-        footer_layout = QVBoxLayout(
-            footer_widget
-        )
-
-        footer_layout.setContentsMargins(
-            12, 10, 12, 16
-        )
-
-        footer_layout.setSpacing(
-            10
-        )
-
-        footer_divider = QFrame()
-
-        footer_divider.setFrameShape(
-            QFrame.HLine
-        )
-
-        footer_divider.setObjectName(
-            "footerDivider"
-        )
-
-        footer_layout.addWidget(
-            footer_divider
-        )
-
-        self.btn_logout = QPushButton(
-            "  🚪   تسجيل الخروج"
-        )
-
-        self.btn_logout.setObjectName(
-            "logoutButton"
-        )
-
-        self.btn_logout.setCursor(
-            Qt.PointingHandCursor
-        )
-
-        self.btn_logout.setMinimumHeight(
-            44
-        )
-
-        self.btn_logout.clicked.connect(
-            self.handle_logout
-        )
-
-        footer_layout.addWidget(
-            self.btn_logout
-        )
-
-        sidebar_layout.addWidget(
-            footer_widget
-        )
-
-        # =================================================
-        # Sidebar Style
-        # =================================================
-
-        sidebar.setStyleSheet(
-            """
-            QWidget#sidebar {
-                background: qlineargradient(
-                    x1:0, y1:0, x2:0, y2:1,
-                    stop:0   #0f1e2e,
-                    stop:0.5 #132639,
-                    stop:1   #0b1825
-                );
-                border-left: 1px solid #1e3a52;
-            }
-
-            QWidget#sidebarBrand {
-                background: transparent;
-            }
-
-            QLabel#brandIcon {
-                font-size: 34px;
-                padding-bottom: 4px;
-            }
-
-            QLabel#sidebarTitle {
-                color: #e8f4fd;
-                font-size: 22px;
-                font-weight: 800;
-                letter-spacing: 1px;
-            }
-
-            QLabel#sidebarSubtitle {
-                color: #6a90aa;
-                font-size: 10px;
-                letter-spacing: 0.5px;
-            }
-
-            QWidget#userCardWrapper {
-                background: transparent;
-            }
-
-            QWidget#userCard {
-                background: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #182f44,
-                    stop:1 #1a3549
-                );
-                border: 1px solid #244766;
-                border-radius: 12px;
-            }
-
-            QLabel#userAvatar {
-                font-size: 22px;
-                background: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:1,
-                    stop:0 #1e4d6b,
-                    stop:1 #1a3f5a
-                );
-                border: 1px solid #2d6a8a;
-                border-radius: 20px;
-                padding: 4px;
-            }
-
-            QLabel#userName {
-                color: #e4f0f8;
-                font-size: 13px;
-                font-weight: 700;
-            }
-
-            QLabel#userRole {
-                color: #4da3c4;
-                font-size: 10px;
-                font-weight: 500;
-            }
-
-            QLabel#sectionLabel {
-                color: #365a72;
-                font-size: 9px;
-                font-weight: 700;
-                letter-spacing: 2px;
-                padding: 8px 20px 4px 20px;
-            }
-
-            QWidget#navContainer {
-                background: transparent;
-            }
-
-            QPushButton#navButton {
-                color: #8aacbf;
-                background-color: transparent;
-                text-align: left;
-                padding: 10px 14px;
-                border: none;
-                border-radius: 10px;
-                font-size: 13px;
-                font-weight: 600;
-            }
-
-            QPushButton#navButton:hover {
-                color: #d4ecf7;
-                background-color: rgba(
-                    45, 100, 140, 0.35
-                );
-                border: 1px solid rgba(
-                    60, 130, 170, 0.25
-                );
-            }
-
-            QPushButton#navButton:pressed {
-                background-color: rgba(
-                    45, 100, 140, 0.55
-                );
-            }
-
-            QPushButton#navButton:checked {
-                color: #e8f7fd;
-                background: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(
-                        38, 198, 218, 0.18
-                    ),
-                    stop:1 rgba(
-                        38, 198, 218, 0.06
-                    )
-                );
-                border: 1px solid rgba(
-                    38, 198, 218, 0.30
-                );
-                border-right: 3px solid #26c6da;
-                font-weight: 700;
-            }
-
-            QPushButton#navButton:checked:hover {
-                background: qlineargradient(
-                    x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(
-                        38, 198, 218, 0.25
-                    ),
-                    stop:1 rgba(
-                        38, 198, 218, 0.10
-                    )
-                );
-            }
-
-            QWidget#sidebarFooterWidget {
-                background: transparent;
-            }
-
-            QFrame#footerDivider {
-                color: #1e3a52;
-                background-color: #1e3a52;
-                border: none;
-                height: 1px;
-                margin-bottom: 6px;
-            }
-
-            QPushButton#logoutButton {
-                color: #f87171;
-                background-color: rgba(
-                    239, 68, 68, 0.10
-                );
-                border: 1px solid rgba(
-                    239, 68, 68, 0.25
-                );
-                border-radius: 10px;
-                padding: 10px 14px;
-                font-size: 13px;
-                font-weight: 700;
-                text-align: left;
-            }
-
-            QPushButton#logoutButton:hover {
-                color: #fca5a5;
-                background-color: rgba(
-                    239, 68, 68, 0.22
-                );
-                border: 1px solid rgba(
-                    239, 68, 68, 0.45
-                );
-            }
-
-            QPushButton#logoutButton:pressed {
-                background-color: rgba(
-                    239, 68, 68, 0.35
-                );
-            }
-            """
-        )
-
-        # Drop shadow
-
-        shadow = QGraphicsDropShadowEffect()
-
-        shadow.setBlurRadius(
-            32
-        )
-
-        shadow.setOffset(
-            -4,
-            0
-        )
-
-        shadow.setColor(
-            QColor(
-                0,
-                0,
-                0,
-                120
-            )
-        )
-
-        sidebar.setGraphicsEffect(
-            shadow
-        )
-
-        # =================================================
-        # Pages
-        # =================================================
-
-        self.pages = QStackedWidget()
-
-        self.home_page = DashboardPage()
-
-        self.devices_page = DevicesPage(
-            self.current_user
-        )
-
-        self.faults_page = FaultsPage(
-            self.current_user
-        )
-
-        self.spare_parts_page = SparePartsPage()
-
-        self.users_page = UsersPage(
-            self.current_user
-        )
-
-        self.permissions_page = PermissionsPage(
-            self.current_user
-        )
-
-        self.logs_page = LogsPage(
-            self.current_user
-        )
-
-        # =================================================
-        # Add Pages
-        # =================================================
-
-        self.pages.addWidget(
-            self.home_page
-        )
-
-        self.pages.addWidget(
-            self.devices_page
-        )
-
-        self.pages.addWidget(
-            self.faults_page
-        )
-
-        self.pages.addWidget(
-            self.spare_parts_page
-        )
-
-        self.pages.addWidget(
-            self.users_page
-        )
-
-        self.pages.addWidget(
-            self.permissions_page
-        )
-
-        self.pages.addWidget(
-            self.logs_page
-        )
-
-        # =================================================
-        # Main Layout
-        # =================================================
-
-        main_layout.addWidget(
-            sidebar
-        )
-
-        main_layout.addWidget(
-            self.pages
-        )
-
-        # =================================================
-        # Navigation
-        # =================================================
-
+        ):
+            nav_layout.addWidget(button)
+
+        # ترتيب الصفحات الداخلي يطابق ترتيب QStackedWidget،
+        # وليس بالضرورة ترتيب ظهور الأزرار في الـ Sidebar.
         self.nav_buttons = [
             self.btn_home,
             self.btn_devices,
@@ -774,302 +249,371 @@ class MainWindow(QMainWindow):
             self.btn_users,
             self.btn_permissions,
             self.btn_logs,
+            self.btn_ink,
+            self.btn_org_structure,
         ]
 
-        for page_index, button in enumerate(
-            self.nav_buttons
-        ):
+        sidebar_layout.addWidget(nav_container)
+        sidebar_layout.addStretch(1)
 
+        # -----------------------------------------------------
+        # Footer / Logout
+        # -----------------------------------------------------
+        footer_widget = QWidget()
+        footer_widget.setObjectName("sidebarFooterWidget")
+        footer_layout = QVBoxLayout(footer_widget)
+        footer_layout.setContentsMargins(0, 0, 0, 0)
+        footer_layout.setSpacing(10)
+
+        divider = QFrame()
+        divider.setObjectName("footerDivider")
+        divider.setFrameShape(QFrame.HLine)
+        divider.setFixedHeight(1)
+
+        self.logout_button = QPushButton("↪  تسجيل الخروج")
+        self.logout_button.setObjectName("logoutButton")
+        self.logout_button.setCursor(Qt.PointingHandCursor)
+        self.logout_button.setMinimumHeight(45)
+        self.logout_button.clicked.connect(self.handle_logout)
+
+        footer_layout.addWidget(divider)
+        footer_layout.addWidget(self.logout_button)
+        sidebar_layout.addWidget(footer_widget)
+
+        # -----------------------------------------------------
+        # Identity colors
+        # -----------------------------------------------------
+        sidebar.setStyleSheet("""
+            QWidget#sidebar {
+                background: qlineargradient(
+                    x1: 0, y1: 0,
+                    x2: 1, y2: 1,
+                    stop: 0 #06283b,
+                    stop: 0.42 #084d65,
+                    stop: 0.72 #086c7d,
+                    stop: 1 #087f91
+                );
+                border: none;
+            }
+
+            QWidget#sidebarBrand,
+            QWidget#userCardWrapper,
+            QWidget#navContainer,
+            QWidget#sidebarFooterWidget {
+                background: transparent;
+            }
+
+            QLabel#brandIcon {
+                background: rgba(255, 255, 255, 0.12);
+                color: #ffffff;
+                border: 1px solid rgba(216, 244, 247, 0.28);
+                border-radius: 29px;
+                font-size: 15px;
+                font-weight: 900;
+            }
+
+            QLabel#sidebarTitle {
+                background: transparent;
+                color: #ffffff;
+                font-size: 22px;
+                font-weight: 900;
+            }
+
+            QLabel#sidebarSubtitle {
+                background: transparent;
+                color: #d8f4f7;
+                font-size: 12px;
+                font-weight: 600;
+            }
+
+            QWidget#userCard {
+                background: rgba(255, 255, 255, 0.10);
+                border: 1px solid rgba(216, 244, 247, 0.24);
+                border-radius: 14px;
+            }
+
+            QLabel#userAvatar {
+                background: #10a6b7;
+                color: #ffffff;
+                border: 1px solid #69cbd4;
+                border-radius: 22px;
+                font-size: 20px;
+                font-weight: 900;
+            }
+
+            QLabel#userName {
+                background: transparent;
+                color: #ffffff;
+                font-size: 13px;
+                font-weight: 800;
+            }
+
+            QLabel#userRole {
+                background: transparent;
+                color: #a9dbe2;
+                font-size: 10px;
+                font-weight: 600;
+            }
+
+            QLabel#sectionLabel {
+                background: transparent;
+                color: #a9dbe2;
+                font-size: 12px;
+                font-weight: 800;
+                padding: 4px 5px;
+            }
+
+            QPushButton#navButton {
+                color: #d8f4f7;
+                background: transparent;
+                border: 1px solid transparent;
+                border-radius: 11px;
+                padding: 11px 14px;
+                font-size: 15px;
+                font-weight: 600;
+                text-align: left;
+            }
+
+            QPushButton#navButton:hover {
+                color: #ffffff;
+                background: rgba(16, 166, 183, 0.20);
+                border: 1px solid rgba(216, 244, 247, 0.18);
+            }
+
+            QPushButton#navButton:pressed {
+                background: rgba(16, 166, 183, 0.32);
+            }
+
+            QPushButton#navButton:checked {
+                color: #ffffff;
+                background: qlineargradient(
+                    x1: 0, y1: 0,
+                    x2: 1, y2: 0,
+                    stop: 0 rgba(16, 166, 183, 0.38),
+                    stop: 1 rgba(16, 166, 183, 0.10)
+                );
+                border: 1px solid rgba(16, 166, 183, 0.45);
+                border-right: 4px solid #10a6b7;
+                font-weight: 800;
+            }
+
+            QPushButton#navButton:checked:hover {
+                background: rgba(16, 166, 183, 0.42);
+                border-right: 4px solid #69cbd4;
+            }
+
+            QPushButton#navButton:disabled {
+                color: rgba(216, 244, 247, 0.48);
+                background: rgba(255, 255, 255, 0.035);
+                border: 1px solid rgba(216, 244, 247, 0.08);
+            }
+
+            QFrame#footerDivider {
+                background: rgba(216, 244, 247, 0.20);
+                border: none;
+                max-height: 1px;
+            }
+
+            QPushButton#logoutButton {
+                color: #ffd2d2;
+                background: rgba(179, 61, 72, 0.16);
+                border: 1px solid rgba(241, 201, 205, 0.30);
+                border-radius: 11px;
+                padding: 11px 14px;
+                font-size: 13px;
+                font-weight: 800;
+                text-align: left;
+            }
+
+            QPushButton#logoutButton:hover {
+                color: #ffffff;
+                background: rgba(179, 61, 72, 0.30);
+                border: 1px solid rgba(255, 210, 210, 0.50);
+            }
+
+            QPushButton#logoutButton:pressed {
+                background: rgba(179, 61, 72, 0.42);
+            }
+        """)
+
+        shadow = QGraphicsDropShadowEffect(sidebar)
+        shadow.setBlurRadius(28)
+        shadow.setOffset(-4, 0)
+        shadow.setColor(QColor(6, 40, 59, 90))
+        sidebar.setGraphicsEffect(shadow)
+
+        return sidebar
+
+    def create_nav_button(self, icon_text, label_text):
+        button = QPushButton(f"{icon_text}   {label_text}")
+        button.setObjectName("navButton")
+        # الزر يحتفظ بحالة الصفحة الحالية، وليس بحالة الـ hover.
+        button.setCheckable(True)
+        button.setCursor(Qt.PointingHandCursor)
+        button.setMinimumHeight(44)
+        return button
+
+    # =========================================================
+    # Pages
+    # =========================================================
+
+    def build_pages(self):
+        self.home_page = DashboardPage()
+        self.devices_page = DevicesPage(self.current_user)
+        self.faults_page = FaultsPage(self.current_user)
+        self.spare_parts_page = SparePartsPage()
+        self.users_page = UsersPage(self.current_user)
+        self.permissions_page = PermissionsPage(self.current_user)
+        self.logs_page = LogsPage(self.current_user)
+        self.ink_page = InkPage(self.current_user)
+        self.org_structure_page = OrgStructurePage(self.current_user)
+
+        pages = [
+            self.home_page,
+            self.devices_page,
+            self.faults_page,
+            self.spare_parts_page,
+            self.users_page,
+            self.permissions_page,
+            self.logs_page,
+            self.ink_page,
+            self.org_structure_page,
+        ]
+
+        for page in pages:
+            self.pages.addWidget(page)
+
+    def build_navigation(self):
+        for page_index, button in enumerate(self.nav_buttons):
             button.clicked.connect(
-                lambda checked=False,
-                index=page_index:
-                self.show_page(index)
+                lambda checked=False, index=page_index: self.show_page(index)
             )
 
-        # =================================================
-        # Permissions
-        # =================================================
-
-        self.apply_permissions()
-
-        self.show_page(
-            0
-        )
-
-    # =====================================================
+    # =========================================================
     # Permissions
-    # =====================================================
+    # =========================================================
 
-    def has_permission(
-        self,
-        permission_code
-    ):
-
-        role = str(
-            self.current_user.get(
-                "role_code",
-                ""
-            )
-        ).strip().upper()
-
-        # SUPER ADMIN له كل الصلاحيات
+    def has_permission(self, permission_code):
+        role = str(self.current_user.get("role_code", "")).strip().upper()
 
         if role == "SUPER_ADMIN":
             return True
 
         return bool(
-            self.current_user
-            .get(
-                "permissions",
-                {}
-            )
-            .get(
-                permission_code,
-                False
-            )
+            self.current_user.get("permissions", {}).get(permission_code, False)
         )
-
-    # =====================================================
-    # Apply Permissions
-    # =====================================================
 
     def apply_permissions(self):
+        # جميع عناصر الـ Sidebar تظل ظاهرة دائمًا.
+        # الزر غير المسموح به يتم تعطيله بدل إخفائه،
+        # حتى يظل شكل القائمة ثابتًا لكل المستخدمين.
+        self.btn_home.setVisible(True)
+        self.btn_devices.setVisible(True)
+        self.btn_faults.setVisible(True)
+        self.btn_spare_parts.setVisible(True)
+        self.btn_ink.setVisible(True)
+        self.btn_org_structure.setVisible(True)
+        self.btn_logs.setVisible(True)
 
-        # -------------------------------------------------
-        # الرئيسية
-        # -------------------------------------------------
-
-        self.btn_home.setVisible(
-            self.has_permission(
-                "dashboard.view"
-            )
+        self.btn_home.setEnabled(self.has_permission("dashboard.view"))
+        self.btn_devices.setEnabled(self.has_permission("devices.view"))
+        self.btn_faults.setEnabled(self.has_permission("faults.view"))
+        self.btn_spare_parts.setEnabled(
+            self.has_permission("spare_parts.view")
         )
-
-        # -------------------------------------------------
-        # الأجهزة
-        # -------------------------------------------------
-
-        self.btn_devices.setVisible(
-            self.has_permission(
-                "devices.view"
-            )
+        self.btn_ink.setEnabled(self.has_permission("ink.view"))
+        self.btn_org_structure.setEnabled(
+            self.has_permission("ink.org_structure.manage")
         )
+        role = str(self.current_user.get("role_code", "")).strip().upper()
 
-        # -------------------------------------------------
-        # الأعطال
-        # -------------------------------------------------
+        # إدارة المستخدمين والصلاحيات تظهر للـ SUPER_ADMIN فقط.
+        is_super_admin = role == "SUPER_ADMIN"
+        self.btn_users.setVisible(is_super_admin)
+        self.btn_permissions.setVisible(is_super_admin)
 
-        self.btn_faults.setVisible(
-            self.has_permission(
-                "faults.view"
-            )
+        self.btn_users.setEnabled(
+            is_super_admin and self.has_permission("users.view")
         )
+        self.btn_permissions.setEnabled(is_super_admin)
+        self.btn_logs.setEnabled(role in ("ADMIN", "SUPER_ADMIN"))
 
-        # -------------------------------------------------
-        # قطع الغيار
-        # -------------------------------------------------
+    # =========================================================
+    # Navigation
+    # =========================================================
 
-        self.btn_spare_parts.setVisible(
-            self.has_permission(
-                "spare_parts.view"
-            )
-        )
+    def show_page(self, index):
+        if not 0 <= index < self.pages.count():
+            return
 
-        # -------------------------------------------------
-        # إدارة المستخدمين
-        # -------------------------------------------------
+        self.pages.setCurrentIndex(index)
 
-        self.btn_users.setVisible(
-            self.has_permission(
-                "users.view"
-            )
-        )
+        # إلغاء التحديد عن جميع الأزرار ثم تثبيت زر الصفحة الحالية.
+        for button in self.nav_buttons:
+            button.setChecked(False)
 
-        # -------------------------------------------------
-        # الصلاحيات
-        # SUPER ADMIN فقط
-        # -------------------------------------------------
+        if index < len(self.nav_buttons):
+            self.nav_buttons[index].setChecked(True)
 
-        role = str(
-            self.current_user.get(
-                "role_code",
-                ""
-            )
-        ).strip().upper()
-
-        self.btn_permissions.setVisible(
-            role == "SUPER_ADMIN"
-        )
-
-        # -------------------------------------------------
-        # سجل العمليات
-        # ADMIN + SUPER ADMIN فقط
-        # -------------------------------------------------
-
-        self.btn_logs.setVisible(
-            role in (
-                "ADMIN",
-                "SUPER_ADMIN"
-            )
-        )
-
-    # =====================================================
+    # =========================================================
     # Logout
-    # =====================================================
+    # =========================================================
 
     def handle_logout(self):
-
         reply = QMessageBox.question(
             self,
             "تسجيل الخروج",
             "هل أنت متأكد من رغبتك في تسجيل الخروج؟",
-            QMessageBox.Yes |
-            QMessageBox.No,
+            QMessageBox.Yes | QMessageBox.No,
             QMessageBox.No,
         )
 
         if reply == QMessageBox.Yes:
-
             self.logout_requested.emit()
 
-    # =====================================================
-    # Show Page
-    # =====================================================
-
-    def show_page(
-        self,
-        index
-    ):
-
-        self.pages.setCurrentIndex(
-            index
-        )
-
-        if 0 <= index < len(
-            self.nav_buttons
-        ):
-
-            self.nav_buttons[
-                index
-            ].setChecked(
-                True
-            )
-
-    # =====================================================
+    # =========================================================
     # Refresh Pages
-    # =====================================================
+    # =========================================================
 
     def refresh_pages(self):
-
         pages_to_refresh = (
-
-            (
-                self.home_page,
-                (
-                    "refresh",
-                ),
-            ),
-
-            (
-                self.devices_page,
-                (
-                    "load_devices",
-                ),
-            ),
-
-            (
-                self.faults_page,
-                (
-                    "load_faults",
-                ),
-            ),
-
-            (
-                self.spare_parts_page,
-                (
-                    "load_parts",
-                    "load_data",
-                ),
-            ),
-
-            (
-                self.users_page,
-                (
-                    "load_users",
-                ),
-            ),
-
-            (
-                self.permissions_page,
-                (
-                    "load_roles",
-                ),
-            ),
-
-            (
-                self.logs_page,
-                (
-                    "load_logs",
-                ),
-            ),
-
+            (self.home_page, ("refresh",)),
+            (self.devices_page, ("load_devices",)),
+            (self.faults_page, ("load_faults",)),
+            (self.spare_parts_page, ("load_parts", "load_data")),
+            (self.users_page, ("load_users",)),
+            (self.permissions_page, ("load_roles",)),
+            (self.logs_page, ("load_logs",)),
+            (self.ink_page, ("load_transactions",)),
+            (self.org_structure_page, ("load_units",)),
         )
 
         for page, method_names in pages_to_refresh:
-
             for method_name in method_names:
+                method = getattr(page, method_name, None)
 
-                method = getattr(
-                    page,
-                    method_name,
-                    None
-                )
-
-                if callable(
-                    method
-                ):
-
+                if callable(method):
                     try:
-
                         method()
-
                     except TypeError:
-
                         pass
-
                     break
 
 
-# =========================================================
+# =============================================================
 # Application
-# =========================================================
+# =============================================================
 
 def main():
-
     initialize_database()
 
-    app = QApplication(
-        sys.argv
-    )
-
-    app.setStyle(
-        "Fusion"
-    )
-
-    app.setLayoutDirection(
-        Qt.RightToLeft
-    )
-
-    # =====================================================
-    # IBM Plex Sans Arabic
-    # =====================================================
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    app.setLayoutDirection(Qt.RightToLeft)
+    setup_arabic_localization(app)
 
     fonts_dir = os.path.join(
-        os.path.dirname(
-            os.path.abspath(
-                __file__
-            )
-        ),
+        os.path.dirname(os.path.abspath(__file__)),
         "fonts",
     )
 
@@ -1081,149 +625,53 @@ def main():
     ]
 
     for font_file in font_files:
+        font_path = os.path.join(fonts_dir, font_file)
+        if os.path.exists(font_path):
+            QFontDatabase.addApplicationFont(font_path)
 
-        font_path = os.path.join(
-            fonts_dir,
-            font_file
-        )
-
-        if os.path.exists(
-            font_path
-        ):
-
-            QFontDatabase.addApplicationFont(
-                font_path
-            )
-
-    app_font = QFont(
-        "IBM Plex Sans Arabic",
-        11
-    )
-
-    app.setFont(
-        app_font
-    )
-
-    # =====================================================
-    # Global Theme
-    # =====================================================
-
-    app.setStyleSheet(
-        Theme.get_global_stylesheet()
-    )
-
-    # =====================================================
-    # Login
-    # =====================================================
+    app.setFont(QFont("IBM Plex Sans Arabic", 11))
+    app.setStyleSheet(Theme.get_global_stylesheet())
 
     login_page = LoginPage()
-
     login_window = QMainWindow()
+    login_window.setWindowTitle("الشبكة - تسجيل الدخول")
+    login_window.resize(550, 620)
+    login_window.setCentralWidget(login_page)
+    login_window.setLayoutDirection(Qt.RightToLeft)
 
-    login_window.setWindowTitle(
-        "الشبكة - تسجيل الدخول"
-    )
-
-    login_window.resize(
-        550,
-        620
-    )
-
-    login_window.setCentralWidget(
-        login_page
-    )
-
-    login_window.setLayoutDirection(
-        Qt.RightToLeft
-    )
-
-    # =====================================================
-    # الاحتفاظ بالنافذة الرئيسية
-    # =====================================================
-
-    main_window = {
-        "window": None
-    }
-
-    # =====================================================
-    # Logout Handler
-    # =====================================================
+    main_window = {"window": None}
 
     def handle_logout():
-
-        # -------------------------------------------------
-        # Audit Log - Logout
-        # -------------------------------------------------
-
-        current_window = main_window.get(
-            "window"
-        )
+        current_window = main_window.get("window")
 
         if current_window:
-
             write_audit_log(
                 user=current_window.current_user,
                 action="خروج",
                 module_name="النظام",
                 description="تم تسجيل الخروج",
             )
-
             current_window.close()
+            main_window["window"] = None
 
-            main_window[
-                "window"
-            ] = None
-
-        if hasattr(
-            login_page,
-            "password_input"
-        ):
-
+        if hasattr(login_page, "password_input"):
             login_page.password_input.clear()
 
         login_window.show()
 
-    # =====================================================
-    # Open Main Window
-    # =====================================================
-
     def open_main(user):
-
         login_window.close()
 
-        window = MainWindow(
-            user
-        )
-
-        main_window[
-            "window"
-        ] = window
-
-        window.logout_requested.connect(
-            handle_logout
-        )
-
+        window = MainWindow(user)
+        main_window["window"] = window
+        window.logout_requested.connect(handle_logout)
         window.show()
 
-    # =====================================================
-    # Login Signal
-    # =====================================================
-
-    login_page.login_successful.connect(
-        open_main
-    )
-
+    login_page.login_successful.connect(open_main)
     login_window.show()
 
     return app.exec()
 
 
-# =========================================================
-# Run
-# =========================================================
-
 if __name__ == "__main__":
-
-    sys.exit(
-        main()
-    )
+    sys.exit(main())

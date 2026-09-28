@@ -202,4 +202,44 @@ class Theme:
         QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
             width: 0px;
         }}
+
+        /* ── Standard Dialogs & MessageBoxes ────── */
+        QDialog, QMessageBox {{
+            background-color: #ffffff;
+            color: #0f2338;
+        }}
+
+        QMessageBox QLabel {{
+            color: #0f2338;
+            font-size: 13px;
+            font-weight: 500;
+            min-height: 38px;
+        }}
+
+        QDialogButtonBox QPushButton, QMessageBox QPushButton {{
+            min-width: 80px;
+            min-height: 34px;
+            padding: 6px 16px;
+            border-radius: 8px;
+            font-weight: 700;
+            font-size: 12px;
+            background-color: #f1f5f9;
+            color: #0f2338;
+            border: 1px solid #cbd5e1;
+        }}
+
+        QDialogButtonBox QPushButton:hover, QMessageBox QPushButton:hover {{
+            background-color: #e2e8f0;
+            border-color: #94a3b8;
+        }}
+
+        QDialogButtonBox QPushButton:default, QMessageBox QPushButton:default {{
+            background-color: {cls.PRIMARY};
+            color: #ffffff;
+            border: 1px solid {cls.PRIMARY};
+        }}
+
+        QDialogButtonBox QPushButton:default:hover, QMessageBox QPushButton:default:hover {{
+            background-color: {cls.PRIMARY_HOVER};
+        }}
         """

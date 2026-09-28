@@ -8,7 +8,7 @@ from PySide6.QtWidgets import (
     QMessageBox, QComboBox, QPlainTextEdit, QFrame, QTabWidget
 )
 
-from database import get_connection
+from database import get_connection, write_audit_log
 from ui.reports_page import ReportsPage
 
 
@@ -200,6 +200,27 @@ def ensure_spare_parts_tables():
     # جداول قطع الغيار موجودة بالفعل في SQL Server.
     return
 
+
+def spare_part_audit_data(part):
+    """Create a stable, JSON-friendly snapshot of a spare-part row."""
+    if not part:
+        return {}
+    keys = (
+        "id", "part_number", "part_name", "category", "quantity",
+        "min_quantity", "required_quantity", "unit", "supplier",
+        "unit_price", "storage_location", "notes", "availability_status",
+        "is_archived", "created_at", "updated_at",
+    )
+    snapshot = {}
+    for key in keys:
+        try:
+            value = part[key]
+        except (KeyError, IndexError, TypeError):
+            continue
+        if hasattr(value, "isoformat"):
+            value = value.isoformat()
+        snapshot[key] = value
+    return snapshot
 
 
 class StatCard(QFrame):
@@ -648,8 +669,13 @@ class MovementHistoryDialog(QDialog):
 
 
 class SparePartsPage(QWidget):
-    def __init__(self):
-        super().__init__()
+    PAGE_SIZE = 50
+
+    def __init__(self, current_user=None, parent=None):
+        super().__init__(parent)
+        self.current_user = current_user or {}
+        self._page = 0
+        self._total = 0
         self.setObjectName("sparePage")
         self.setStyleSheet(APP_STYLE)
 
@@ -771,8 +797,33 @@ class SparePartsPage(QWidget):
 
         main.addWidget(self.table, 1)
 
-        self.search_box.textChanged.connect(self.load_parts)
-        self.filter_box.currentIndexChanged.connect(self.load_parts)
+        pagination_row = QHBoxLayout()
+        self.stats_label = QLabel("")
+        self.stats_label.setStyleSheet("color: #64748b; font-size: 11px;")
+        pagination_row.addWidget(self.stats_label)
+        pagination_row.addStretch()
+
+        self.previous_button = QPushButton("◀  السابق")
+        self.previous_button.setObjectName("secondaryButton")
+        self.previous_button.setMinimumHeight(32)
+        self.previous_button.clicked.connect(self._previous_page)
+
+        self.page_label = QLabel("صفحة 1 / 1")
+        self.page_label.setAlignment(Qt.AlignCenter)
+        self.page_label.setStyleSheet("font-weight: 700; min-width: 90px;")
+
+        self.next_button = QPushButton("التالي  ▶")
+        self.next_button.setObjectName("secondaryButton")
+        self.next_button.setMinimumHeight(32)
+        self.next_button.clicked.connect(self._next_page)
+
+        pagination_row.addWidget(self.previous_button)
+        pagination_row.addWidget(self.page_label)
+        pagination_row.addWidget(self.next_button)
+        main.addLayout(pagination_row)
+
+        self.search_box.textChanged.connect(self._reset_page_and_load_parts)
+        self.filter_box.currentIndexChanged.connect(self._reset_page_and_load_parts)
         self.add_button.clicked.connect(self.add_part)
         self.edit_button.clicked.connect(self.edit_part)
         self.movement_button.clicked.connect(self.add_movement)
@@ -800,6 +851,24 @@ class SparePartsPage(QWidget):
         if quantity <= minimum:
             return "عند الحد الأدنى"
         return "متوفر"
+
+    def _reset_page_and_load_parts(self, *_args):
+        self._page = 0
+        self.load_parts()
+
+    def _previous_page(self, _checked=False):
+        if self._page > 0:
+            self._page -= 1
+            self.load_parts()
+
+    def _next_page(self, _checked=False):
+        total_pages = max(
+            1,
+            (self._total + self.PAGE_SIZE - 1) // self.PAGE_SIZE,
+        )
+        if self._page < total_pages - 1:
+            self._page += 1
+            self.load_parts()
 
     def load_parts(self):
         search = self.search_box.text().strip()
@@ -850,31 +919,47 @@ class SparePartsPage(QWidget):
         parts = cursor.fetchall()
         connection.close()
 
+        # Update summary cards from the full filtered result, not only the current page.
         missing_count = 0
         minimum_count = 0
         available_count = 0
+        status_by_id = {}
+        for part in parts:
+            status = self.compute_status(part)
+            status_by_id[part["id"]] = status
+            if status == "ناقص":
+                missing_count += 1
+            elif status == "عند الحد الأدنى":
+                minimum_count += 1
+            else:
+                available_count += 1
+
+        self._total = len(parts)
+        total_pages = max(
+            1,
+            (self._total + self.PAGE_SIZE - 1) // self.PAGE_SIZE,
+        )
+        self._page = min(self._page, total_pages - 1)
+        start = self._page * self.PAGE_SIZE
+        visible_parts = parts[start:start + self.PAGE_SIZE]
 
         self.table.setRowCount(0)
-
-        for part in parts:
+        for part in visible_parts:
             row = self.table.rowCount()
             self.table.insertRow(row)
 
             quantity = int(part["quantity"] or 0)
             minimum = int(part["min_quantity"] or 0)
             required = int(part["required_quantity"] or 0)
-            status = self.compute_status(part)
+            status = status_by_id[part["id"]]
 
             if status == "ناقص":
-                missing_count += 1
                 status_color = QColor("#a33a3a")
                 status_bg = QColor("#fbe8e8")
             elif status == "عند الحد الأدنى":
-                minimum_count += 1
                 status_color = QColor("#a9790a")
                 status_bg = QColor("#fff6e0")
             else:
-                available_count += 1
                 status_color = QColor("#1f8a53")
                 status_bg = QColor("#e8f6ee")
 
@@ -902,6 +987,14 @@ class SparePartsPage(QWidget):
         self.missing_card.set_value(missing_count)
         self.minimum_card.set_value(minimum_count)
         self.available_card.set_value(available_count)
+
+        self.page_label.setText(f"صفحة {self._page + 1} / {total_pages}")
+        self.previous_button.setEnabled(self._page > 0)
+        self.next_button.setEnabled(self._page < total_pages - 1)
+        self.stats_label.setText(
+            f"إجمالي القطع: {self._total}  |  "
+            f"المعروض في الصفحة: {len(visible_parts)}"
+        )
 
     def selected_part(self):
         selected = self.table.selectedItems()
@@ -945,6 +1038,7 @@ class SparePartsPage(QWidget):
                 min_quantity, required_quantity, unit, supplier,
                 unit_price, storage_location, notes, availability_status
             )
+            OUTPUT INSERTED.id
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data["part_number"],
@@ -960,9 +1054,22 @@ class SparePartsPage(QWidget):
             data["notes"],
             data["availability_status"],
         ))
+        inserted = cursor.fetchone()
+        part_id = inserted["id"] if inserted else None
 
         connection.commit()
         connection.close()
+
+        audit_new_values = dict(data)
+        audit_new_values["id"] = part_id
+        write_audit_log(
+            user=self.current_user,
+            action="إضافة",
+            module_name="قطع الغيار",
+            record_id=part_id,
+            description=f"تمت إضافة قطعة الغيار: {data['part_name']}",
+            new_values=audit_new_values,
+        )
 
         self.load_parts()
 
@@ -970,6 +1077,7 @@ class SparePartsPage(QWidget):
         part = self.selected_part()
         if not part:
             return
+        old_values = spare_part_audit_data(part)
 
         dialog = SparePartDialog(self, part)
 
@@ -1017,6 +1125,19 @@ class SparePartsPage(QWidget):
         connection.commit()
         connection.close()
 
+        audit_new_values = dict(data)
+        audit_new_values["id"] = part["id"]
+        audit_new_values["is_archived"] = old_values.get("is_archived", 0)
+        write_audit_log(
+            user=self.current_user,
+            action="تعديل",
+            module_name="قطع الغيار",
+            record_id=part["id"],
+            description=f"تم تعديل بيانات قطعة الغيار: {data['part_name']}",
+            old_values=old_values,
+            new_values=audit_new_values,
+        )
+
         self.load_parts()
 
     def add_movement(self):
@@ -1031,11 +1152,12 @@ class SparePartsPage(QWidget):
 
         data = dialog.get_data()
 
+        old_quantity = int(part["quantity"] or 0)
         delta = data["quantity"]
         if data["movement_type"] == "صرف":
             delta = -delta
 
-        new_quantity = int(part["quantity"] or 0) + delta
+        new_quantity = old_quantity + delta
 
         if new_quantity < 0:
             QMessageBox.warning(
@@ -1072,6 +1194,32 @@ class SparePartsPage(QWidget):
         connection.commit()
         connection.close()
 
+        write_audit_log(
+            user=self.current_user,
+            action="إضافة",
+            module_name="قطع الغيار",
+            record_id=part["id"],
+            description=(
+                f"تم تسجيل حركة {data['movement_type']} "
+                f"للقطعة {part['part_name']} بكمية {data['quantity']}"
+            ),
+            old_values={
+                "part_id": part["id"],
+                "part_name": part["part_name"],
+                "quantity": old_quantity,
+                "availability_status": part["availability_status"],
+            },
+            new_values={
+                "part_id": part["id"],
+                "part_name": part["part_name"],
+                "quantity": new_quantity,
+                "availability_status": new_status,
+                "movement_type": data["movement_type"],
+                "movement_quantity": data["quantity"],
+                "notes": data["notes"],
+            },
+        )
+
         self.load_parts()
 
     def show_movement_history(self):
@@ -1082,6 +1230,12 @@ class SparePartsPage(QWidget):
         part = self.selected_part()
         if not part:
             return
+        old_values = spare_part_audit_data(part)
+        old_values["is_archived"] = 0
+        old_values["حالة الأرشفة"] = "غير مؤرشف"
+        new_values = dict(old_values)
+        new_values["is_archived"] = 1
+        new_values["حالة الأرشفة"] = "مؤرشف"
 
         answer = QMessageBox.question(
             self,
@@ -1104,5 +1258,15 @@ class SparePartsPage(QWidget):
 
         connection.commit()
         connection.close()
+
+        write_audit_log(
+            user=self.current_user,
+            action="أرشفة",
+            module_name="قطع الغيار",
+            record_id=part["id"],
+            description=f"تمت أرشفة قطعة الغيار: {part['part_name']}",
+            old_values=old_values,
+            new_values=new_values,
+        )
 
         self.load_parts()

@@ -780,6 +780,8 @@ class DeviceDialog(QDialog):
 
 class DevicesPage(QWidget):
 
+    PAGE_SIZE = 50
+
     def __init__(
         self,
         current_user=None,
@@ -789,6 +791,9 @@ class DevicesPage(QWidget):
         self.current_user = (
             current_user or {}
         )
+
+        self._page = 0
+        self._total = 0
 
         ensure_device_columns()
 
@@ -860,7 +865,7 @@ class DevicesPage(QWidget):
             can_edit
         )
 
-        self.archive_button.setVisible(
+        self.device_delete_button.setVisible(
             can_delete
         )
 
@@ -974,15 +979,28 @@ class DevicesPage(QWidget):
         )
 
         self.archive_button = QPushButton(
-            "🗄  أرشفة"
+            "📦  أرشفة"
+        )
+        self.archive_button.setObjectName(
+            "secondary"
+        )
+        self.archive_button.clicked.connect(
+            self.archive_device
+        )
+        self.archive_button.setVisible(
+            self.has_permission("devices.delete")
         )
 
-        self.archive_button.setObjectName(
+        self.device_delete_button = QPushButton(
+            "🗑  حذف"
+        )
+
+        self.device_delete_button.setObjectName(
             "danger"
         )
 
-        self.archive_button.clicked.connect(
-            self.archive_device
+        self.device_delete_button.clicked.connect(
+            self.delete_device
         )
 
         self.clear_all_button = QPushButton(
@@ -1011,6 +1029,10 @@ class DevicesPage(QWidget):
 
         head.addWidget(
             self.archive_button
+        )
+
+        head.addWidget(
+            self.device_delete_button
         )
 
         head.addWidget(
@@ -1057,7 +1079,7 @@ class DevicesPage(QWidget):
         )
 
         self.search.textChanged.connect(
-            self.load_devices
+            self._reset_page_and_load_devices
         )
 
         search_layout.addWidget(
@@ -1077,7 +1099,7 @@ class DevicesPage(QWidget):
         )
 
         self.building_filter.currentIndexChanged.connect(
-            self.load_devices
+            self._reset_page_and_load_devices
         )
 
         search_layout.addWidget(
@@ -1096,7 +1118,7 @@ class DevicesPage(QWidget):
         )
 
         self.status_filter.currentIndexChanged.connect(
-            self.load_devices
+            self._reset_page_and_load_devices
         )
 
         search_layout.addWidget(
@@ -1204,6 +1226,47 @@ class DevicesPage(QWidget):
             self.table
         )
 
+        # ----------------------------------------------------
+        # Pagination
+        # ----------------------------------------------------
+
+        pagination_row = QHBoxLayout()
+
+        self.stats_label = QLabel("")
+        self.stats_label.setStyleSheet(
+            "color: #64748b; font-size: 11px;"
+        )
+        pagination_row.addWidget(
+            self.stats_label
+        )
+        pagination_row.addStretch()
+
+        self.previous_button = QPushButton("◀  السابق")
+        self.previous_button.setObjectName("secondary")
+        self.previous_button.setMinimumHeight(32)
+        self.previous_button.clicked.connect(
+            self._previous_page
+        )
+
+        self.page_label = QLabel("صفحة 1 / 1")
+        self.page_label.setAlignment(Qt.AlignCenter)
+        self.page_label.setStyleSheet(
+            "font-weight: 700; min-width: 80px;"
+        )
+
+        self.next_button = QPushButton("التالي  ▶")
+        self.next_button.setObjectName("secondary")
+        self.next_button.setMinimumHeight(32)
+        self.next_button.clicked.connect(
+            self._next_page
+        )
+
+        pagination_row.addWidget(self.previous_button)
+        pagination_row.addWidget(self.page_label)
+        pagination_row.addWidget(self.next_button)
+
+        table_layout.addLayout(pagination_row)
+
         root.addWidget(
             table_card,
             1,
@@ -1212,6 +1275,28 @@ class DevicesPage(QWidget):
     # ========================================================
     # Load Devices
     # ========================================================
+
+    def _reset_page_and_load_devices(self, *_args):
+
+        self._page = 0
+        self.load_devices()
+
+    def _previous_page(self, _checked=False):
+
+        if self._page > 0:
+            self._page -= 1
+            self.load_devices()
+
+    def _next_page(self, _checked=False):
+
+        total_pages = max(
+            1,
+            (self._total + self.PAGE_SIZE - 1) // self.PAGE_SIZE,
+        )
+
+        if self._page < total_pages - 1:
+            self._page += 1
+            self.load_devices()
 
     def load_devices(self):
 
@@ -1415,6 +1500,23 @@ class DevicesPage(QWidget):
             con.close()
 
         # ----------------------------------------------------
+        # Apply pagination
+        # ----------------------------------------------------
+
+        self._total = len(rows)
+        total_pages = max(
+            1,
+            (self._total + self.PAGE_SIZE - 1) // self.PAGE_SIZE,
+        )
+        self._page = min(
+            self._page,
+            total_pages - 1,
+        )
+
+        start = self._page * self.PAGE_SIZE
+        visible_rows = rows[start:start + self.PAGE_SIZE]
+
+        # ----------------------------------------------------
         # Fill Table
         # ----------------------------------------------------
 
@@ -1422,7 +1524,7 @@ class DevicesPage(QWidget):
             0
         )
 
-        for device in rows:
+        for device in visible_rows:
 
             row = self.table.rowCount()
 
@@ -1472,6 +1574,20 @@ class DevicesPage(QWidget):
                     column,
                     item,
                 )
+
+        self.page_label.setText(
+            f"صفحة {self._page + 1} / {total_pages}"
+        )
+        self.previous_button.setEnabled(
+            self._page > 0
+        )
+        self.next_button.setEnabled(
+            self._page < total_pages - 1
+        )
+        self.stats_label.setText(
+            f"إجمالي الأجهزة: {self._total}  |  "
+            f"المعروض في الصفحة: {len(visible_rows)}"
+        )
 
     # ========================================================
     # Selected Device
@@ -1924,6 +2040,104 @@ class DevicesPage(QWidget):
         )
 
     # ========================================================
+    # Archive Device
+    # ========================================================
+
+    def archive_device(self):
+
+        if not self.has_permission("devices.delete"):
+            QMessageBox.warning(
+                self,
+                "غير مسموح",
+                "ليس لديك صلاحية أرشفة الأجهزة.",
+            )
+            return
+
+        device = self.get_selected_device()
+        if not device:
+            return
+
+        try:
+            already_archived = int(device["is_archived"] or 0) == 1
+        except (KeyError, TypeError, ValueError):
+            already_archived = False
+
+        if already_archived:
+            QMessageBox.information(
+                self,
+                "الجهاز مؤرشف",
+                "هذا الجهاز موجود بالفعل في الأرشيف.",
+            )
+            return
+
+        device_name = device["device_name"]
+        old_values = device_audit_data(device)
+        old_values["is_archived"] = 0
+        old_values["حالة الأرشفة"] = "غير مؤرشف"
+        new_values = dict(old_values)
+        new_values["is_archived"] = 1
+        new_values["حالة الأرشفة"] = "مؤرشف"
+
+        answer = QMessageBox.question(
+            self,
+            "تأكيد أرشفة الجهاز",
+            f"هل تريد أرشفة الجهاز «{device_name}»؟\n\n"
+            "سيظل سجل الجهاز محفوظًا، لكنه سيختفي من قائمة الأجهزة النشطة.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+
+        con = get_connection()
+        cur = con.cursor()
+        try:
+            cur.execute(
+                """
+                UPDATE devices
+                SET is_archived = 1, updated_at = CURRENT_TIMESTAMP
+                WHERE id = ? AND is_archived = 0
+                """,
+                (device["id"],),
+            )
+            if cur.rowcount == 0:
+                con.rollback()
+                QMessageBox.information(
+                    self,
+                    "لم يتم التغيير",
+                    "لم يتم العثور على جهاز نشط لأرشفته.",
+                )
+                return
+            con.commit()
+        except Exception as error:
+            con.rollback()
+            QMessageBox.critical(
+                self,
+                "خطأ",
+                f"تعذر أرشفة الجهاز:\n\n{error}",
+            )
+            return
+        finally:
+            con.close()
+
+        write_audit_log(
+            user=self.current_user,
+            action="أرشفة",
+            module_name="الأجهزة",
+            record_id=device["id"],
+            description=f"تمت أرشفة الجهاز: {device_name}",
+            old_values=old_values,
+            new_values=new_values,
+        )
+
+        self.load_devices()
+        QMessageBox.information(
+            self,
+            "تم",
+            f"تمت أرشفة الجهاز «{device_name}» بنجاح.",
+        )
+
+    # ========================================================
     # Delete All Devices
     # ========================================================
 
@@ -2052,106 +2266,95 @@ class DevicesPage(QWidget):
         self.load_devices()
 
     # ========================================================
-    # Archive Device
+    # Delete Device
     # ========================================================
 
-    def archive_device(self):
+    def delete_device(self):
 
         if not self.has_permission(
             "devices.delete"
         ):
-
             QMessageBox.warning(
                 self,
                 "غير مسموح",
-                "ليس لديك صلاحية حذف/أرشفة الأجهزة.",
+                "ليس لديك صلاحية حذف الأجهزة.",
             )
-
             return
 
         device = self.get_selected_device()
-
         if not device:
             return
 
-        answer = QMessageBox.question(
-            self,
-            "تأكيد الأرشفة",
-            f"هل تريد أرشفة الجهاز:\n\n"
-            f"{device['device_name']}؟",
-            QMessageBox.Yes
-            | QMessageBox.No,
-            QMessageBox.No,
-        )
-
-        if answer != QMessageBox.Yes:
-            return
-
-        old_values = device_audit_data(
-            device
-        )
-
+        old_values = device_audit_data(device)
         con = get_connection()
         cur = con.cursor()
 
         try:
-
+            # الاحتفاظ بسجل الأعطال: لا نحذف الجهاز إذا كان مرتبطًا بأعطال.
             cur.execute(
                 """
-                UPDATE devices
-                SET
-                    is_archived=1,
-                    updated_at=CURRENT_TIMESTAMP
-                WHERE id=?
+                SELECT COUNT(*) AS total
+                FROM faults
+                WHERE device_id = ?
                 """,
-                (
-                    device["id"],
-                ),
+                (device["id"],),
             )
+            fault_count = int(cur.fetchone()["total"] or 0)
 
+            if fault_count:
+                QMessageBox.warning(
+                    self,
+                    "لا يمكن حذف الجهاز",
+                    "هذا الجهاز مرتبط بسجلات أعطال.\n\n"
+                    "لم يتم حذفه حفاظًا على سجل الأعطال. "
+                    "احذف أو عالج سجلات الأعطال المرتبطة أولًا.",
+                )
+                return
+
+            answer = QMessageBox.question(
+                self,
+                "تأكيد حذف الجهاز",
+                f"هل تريد حذف الجهاز نهائيًا؟\n\n"
+                f"{device['device_name']}\n\n"
+                "لا يمكن التراجع عن هذا الحذف.",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if answer != QMessageBox.Yes:
+                return
+
+            cur.execute(
+                "DELETE FROM devices WHERE id = ?",
+                (device["id"],),
+            )
             con.commit()
 
         except Exception as error:
-
             con.rollback()
-
             QMessageBox.critical(
                 self,
                 "خطأ",
-                f"حدث خطأ أثناء أرشفة الجهاز:\n\n{error}",
+                f"حدث خطأ أثناء حذف الجهاز:\n\n{error}",
             )
-
             return
 
         finally:
-
             con.close()
-
-        # ----------------------------------------------------
-        # Audit Log
-        # ----------------------------------------------------
 
         write_audit_log(
             user=self.current_user,
-            action="أرشفة",
+            action="حذف",
             module_name="الأجهزة",
             record_id=device["id"],
-            description=(
-                f"تمت أرشفة الجهاز: "
-                f"{device['device_name']}"
-            ),
+            description=f"تم حذف الجهاز نهائيًا: {device['device_name']}",
             old_values=old_values,
-            new_values={
-                "is_archived": 1,
-            },
         )
 
         self.load_devices()
-
         QMessageBox.information(
             self,
             "تم",
-            "تمت أرشفة الجهاز بنجاح.",
+            "تم حذف الجهاز نهائيًا.",
         )
 
     # ========================================================

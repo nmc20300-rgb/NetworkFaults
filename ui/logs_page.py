@@ -1,7 +1,7 @@
 from ast import literal_eval
 import json
 
-from PySide6.QtCore import Qt, QDate
+from PySide6.QtCore import Qt, QDate, QTimer
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -35,8 +35,17 @@ class LogsPage(QWidget):
 
         self.setObjectName("logsPage")
 
+        self._loading_logs = False
+        self._refresh_interval_ms = 5000
+
         self.setup_ui()
         self.load_logs()
+
+        self._logs_refresh_timer = QTimer(self)
+        self._logs_refresh_timer.setInterval(self._refresh_interval_ms)
+        self._logs_refresh_timer.timeout.connect(self._auto_refresh_logs)
+        if self.can_view():
+            self._logs_refresh_timer.start()
 
     # =========================================================
     # Permission
@@ -91,7 +100,7 @@ class LogsPage(QWidget):
         )
 
         subtitle = QLabel(
-            "متابعة ومراجعة جميع العمليات التي تمت داخل النظام"
+            "متابعة ومراجعة جميع العمليات — تحديث تلقائي كل 5 ثوانٍ"
         )
 
         subtitle.setObjectName(
@@ -190,15 +199,18 @@ class LogsPage(QWidget):
             ""
         )
 
-        self.module_filter.addItems([
+        for module_name in (
             "الأجهزة",
             "الأعطال",
             "قطع الغيار",
+            "الأحبار",
+            "الهيكل التنظيمي",
             "المستخدمين",
             "الصلاحيات",
             "التقارير",
             "النظام",
-        ])
+        ):
+            self.module_filter.addItem(module_name, module_name)
 
         filter_layout.addWidget(
             module_label
@@ -227,7 +239,7 @@ class LogsPage(QWidget):
             ""
         )
 
-        self.action_filter.addItems([
+        for action_name in (
             "إضافة",
             "تعديل",
             "حذف",
@@ -242,7 +254,8 @@ class LogsPage(QWidget):
             "تعطيل",
             "تغيير كلمة المرور",
             "تغيير الصلاحيات",
-        ])
+        ):
+            self.action_filter.addItem(action_name, action_name)
 
         filter_layout.addWidget(
             action_label
@@ -614,7 +627,8 @@ class LogsPage(QWidget):
                 color: #0e7490;
                 border: 1px solid #a5f3fc;
                 border-radius: 7px;
-                padding: 5px 10px;
+                padding: 6px 10px;
+                min-height: 34px;
                 font-weight: 700;
             }
 
@@ -851,125 +865,100 @@ class LogsPage(QWidget):
     # Load Logs
     # =========================================================
 
-    def load_logs(self):
+    def _auto_refresh_logs(self):
 
-        if not self.can_view():
-
-            self.table.setRowCount(0)
-
-            self.count_label.setText(
-                "غير مصرح بعرض سجل العمليات"
-            )
-
+        if not self.can_view() or not self.isVisible():
             return
 
+        self.load_logs(preserve_view=True)
+
+    # =========================================================
+    # Load Logs
+    # =========================================================
+
+    def load_logs(self, preserve_view=False):
+
+        if not self.can_view():
+            self.table.setRowCount(0)
+            self.count_label.setText("غير مصرح بعرض سجل العمليات")
+            return
+
+        if self._loading_logs:
+            return
+
+        scroll_bar = self.table.verticalScrollBar()
+        previous_scroll = scroll_bar.value() if preserve_view else 0
+        selected_log_id = None
+        if preserve_view:
+            current_row = self.table.currentRow()
+            if current_row >= 0:
+                current_item = self.table.item(current_row, 0)
+                if current_item is not None:
+                    selected_log_id = current_item.data(Qt.UserRole)
+
+        self._loading_logs = True
         try:
-
             rows = self.get_filtered_logs()
-
             self.table.setRowCount(0)
 
             for row_data in rows:
-
                 row = self.table.rowCount()
-
                 self.table.insertRow(row)
 
-                self.set_table_item(
-                    row,
-                    0,
-                    row_data["username"]
+                username_item = self.set_table_item(
+                    row, 0, row_data["username"]
                 )
+                username_item.setData(Qt.UserRole, row_data["id"])
 
                 action_item = self.set_table_item(
-                    row,
-                    1,
-                    row_data["action"]
+                    row, 1, row_data["action"]
                 )
-
-                self.apply_action_style(
-                    action_item,
-                    row_data["action"]
-                )
-
+                self.apply_action_style(action_item, row_data["action"])
+                self.set_table_item(row, 2, row_data["module_name"])
+                self.set_table_item(row, 3, row_data["record_id"])
+                self.set_table_item(row, 4, row_data["description"])
+                self.set_table_item(row, 5, row_data["computer_name"])
+                self.set_table_item(row, 6, row_data["ip_address"])
                 self.set_table_item(
-                    row,
-                    2,
-                    row_data["module_name"]
+                    row, 7, self.format_datetime(row_data["created_at"])
                 )
 
-                self.set_table_item(
-                    row,
-                    3,
-                    row_data["record_id"]
-                )
-
-                self.set_table_item(
-                    row,
-                    4,
-                    row_data["description"]
-                )
-
-                self.set_table_item(
-                    row,
-                    5,
-                    row_data["computer_name"]
-                )
-
-                self.set_table_item(
-                    row,
-                    6,
-                    row_data["ip_address"]
-                )
-
-                self.set_table_item(
-                    row,
-                    7,
-                    self.format_datetime(
-                        row_data["created_at"]
-                    )
-                )
-
-                details_button = QPushButton(
-                    "عرض التفاصيل"
-                )
-
-                details_button.setObjectName(
-                    "logDetailsButton"
-                )
-
-                details_button.setCursor(
-                    Qt.PointingHandCursor
-                )
-
+                details_button = QPushButton("عرض التفاصيل")
+                details_button.setObjectName("logDetailsButton")
+                details_button.setCursor(Qt.PointingHandCursor)
+                details_button.setMinimumHeight(36)
+                details_button.setMinimumWidth(104)
                 log_id = row_data["id"]
-
                 details_button.clicked.connect(
-                    lambda checked=False,
-                    current_id=log_id:
-                    self.show_details(
-                        current_id
-                    )
+                    lambda checked=False, current_id=log_id:
+                    self.show_details(current_id)
                 )
+                details_cell = QWidget(self.table)
+                details_layout = QHBoxLayout(details_cell)
+                details_layout.setContentsMargins(3, 2, 3, 2)
+                details_layout.setAlignment(Qt.AlignCenter)
+                details_layout.addWidget(details_button)
+                self.table.setCellWidget(row, 8, details_cell)
+                self.table.setRowHeight(row, 52)
 
-                self.table.setCellWidget(
-                    row,
-                    8,
-                    details_button
-                )
+            if preserve_view:
+                if selected_log_id is not None:
+                    for row_index, row_data in enumerate(rows):
+                        if row_data["id"] == selected_log_id:
+                            self.table.selectRow(row_index)
+                            break
+                scroll_bar.setValue(previous_scroll)
 
-            self.count_label.setText(
-                f"عدد السجلات: {len(rows)}"
-            )
+            self.count_label.setText(f"عدد السجلات: {len(rows)}")
 
         except Exception as error:
-
             QMessageBox.critical(
                 self,
                 "خطأ",
-                "حدث خطأ أثناء تحميل سجل العمليات:\n\n"
-                + str(error)
+                "حدث خطأ أثناء تحميل سجل العمليات:\n\n" + str(error),
             )
+        finally:
+            self._loading_logs = False
 
     # =========================================================
     # Table Item
@@ -1219,6 +1208,14 @@ class LogsPage(QWidget):
         names = {
 
             "id": "رقم السجل",
+
+            "name": "اسم الوحدة",
+            "unit_type": "نوع الوحدة",
+            "parent_id": "رقم الوحدة الأعلى",
+            "parent_name": "الوحدة الأعلى",
+            "file_name": "اسم الملف",
+            "record_count": "عدد السجلات",
+            "deleted": "تم الحذف",
 
             "device_number": "رقم الجهاز",
             "device_name": "اسم الجهاز",
@@ -1474,6 +1471,19 @@ class LogsPage(QWidget):
                 row["new_values"]
             )
         )
+
+        # Use one shared field order so old and new values line up row by row.
+        value_keys = list(dict.fromkeys(
+            list(old_values.keys()) + list(new_values.keys())
+        ))
+        old_values = {
+            key: old_values.get(key, "—")
+            for key in value_keys
+        }
+        new_values = {
+            key: new_values.get(key, "—")
+            for key in value_keys
+        }
 
         dialog = QDialog(self)
 
