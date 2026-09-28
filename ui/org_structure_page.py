@@ -6,11 +6,25 @@ ui/org_structure_page.py
 """
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QTreeWidget, QTreeWidgetItem,
-    QHeaderView, QDialog, QFormLayout, QLineEdit,
-    QComboBox, QMessageBox, QFrame, QAbstractItemView,
-    QWizard, QWizardPage, QCompleter, QFileDialog,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QHeaderView,
+    QDialog,
+    QFormLayout,
+    QLineEdit,
+    QComboBox,
+    QMessageBox,
+    QFrame,
+    QAbstractItemView,
+    QWizard,
+    QWizardPage,
+    QCompleter,
+    QFileDialog,
 )
 from PySide6.QtCore import Qt, QSize, QStringListModel, QTimer
 from PySide6.QtGui import QColor, QFont
@@ -29,8 +43,11 @@ def org_unit_audit_data(unit, all_units=None):
         parent_name = "— (عنصر رئيسي)"
     elif not parent_name:
         parent = next(
-            (candidate for candidate in (all_units or [])
-             if candidate.get("id") == parent_id),
+            (
+                candidate
+                for candidate in (all_units or [])
+                if candidate.get("id") == parent_id
+            ),
             None,
         )
         parent_name = parent.get("name") if parent else "غير معروف"
@@ -48,6 +65,7 @@ def org_unit_audit_data(unit, all_units=None):
 # ─────────────────────────────────────────────────────────────
 # Dialog: Add / Edit Org Unit
 # ─────────────────────────────────────────────────────────────
+
 
 class _OrgUnitDetailsPage(QWizardPage):
     def __init__(self, wizard):
@@ -67,7 +85,6 @@ class _OrgUnitDetailsPage(QWizardPage):
 
 
 class OrgUnitDialog(QWizard):
-
     UNIT_TYPES = ["فرع", "مبنى", "قسم", "مكتب"]
     STEP_NAMES = ["نوع الوحدة", "البيانات", "مراجعة"]
 
@@ -140,7 +157,11 @@ class OrgUnitDialog(QWizard):
         row.setContentsMargins(0, 4, 0, 10)
         row.setSpacing(8)
         for index, title in enumerate(self.STEP_NAMES):
-            state = "done" if index < active_step else "active" if index == active_step else ""
+            state = (
+                "done"
+                if index < active_step
+                else "active" if index == active_step else ""
+            )
             label = QLabel(f"{index + 1}  {title}")
             label.setObjectName("stepItem")
             label.setProperty("stepState", state)
@@ -166,10 +187,12 @@ class OrgUnitDialog(QWizard):
         type_layout = QVBoxLayout(type_page)
         type_layout.setContentsMargins(8, 8, 8, 8)
         type_layout.addWidget(self._build_stepper(0))
-        type_layout.addLayout(self._make_page_heading(
-            "ما نوع الوحدة؟",
-            "اختيار النوع يحدد مكان الوحدة في الهيكل والجهة التي يمكن أن تتبع لها.",
-        ))
+        type_layout.addLayout(
+            self._make_page_heading(
+                "ما نوع الوحدة؟",
+                "اختيار النوع يحدد مكان الوحدة في الهيكل والجهة التي يمكن أن تتبع لها.",
+            )
+        )
 
         type_card = QFrame()
         type_card.setObjectName("wizardCard")
@@ -196,10 +219,12 @@ class OrgUnitDialog(QWizard):
         details_layout = QVBoxLayout(self.details_page)
         details_layout.setContentsMargins(8, 8, 8, 8)
         details_layout.addWidget(self._build_stepper(1))
-        details_layout.addLayout(self._make_page_heading(
-            "أكمل البيانات الأساسية",
-            "يمكنك الرجوع للخطوة السابقة لتغيير نوع الوحدة.",
-        ))
+        details_layout.addLayout(
+            self._make_page_heading(
+                "أكمل البيانات الأساسية",
+                "يمكنك الرجوع للخطوة السابقة لتغيير نوع الوحدة.",
+            )
+        )
 
         details_card = QFrame()
         details_card.setObjectName("wizardCard")
@@ -226,10 +251,12 @@ class OrgUnitDialog(QWizard):
         review_layout = QVBoxLayout(review_page)
         review_layout.setContentsMargins(8, 8, 8, 8)
         review_layout.addWidget(self._build_stepper(2))
-        review_layout.addLayout(self._make_page_heading(
-            "راجع ملخص الوحدة",
-            "إذا احتجت إلى تعديل أي معلومة، ارجع إلى الخطوة المناسبة.",
-        ))
+        review_layout.addLayout(
+            self._make_page_heading(
+                "راجع ملخص الوحدة",
+                "إذا احتجت إلى تعديل أي معلومة، ارجع إلى الخطوة المناسبة.",
+            )
+        )
 
         review_card = QFrame()
         review_card.setObjectName("wizardCard")
@@ -343,8 +370,8 @@ class OrgUnitDialog(QWizard):
 # OrgStructurePage
 # ─────────────────────────────────────────────────────────────
 
-class OrgStructurePage(QWidget):
 
+class OrgStructurePage(QWidget):
     def __init__(self, current_user=None, parent=None):
         super().__init__(parent)
         self.current_user = current_user or {}
@@ -369,9 +396,7 @@ class OrgStructurePage(QWidget):
         title_box.setSpacing(3)
         title = QLabel("إدارة الهيكل التنظيمي")
         title.setObjectName("pageTitle")
-        subtitle = QLabel(
-            "استكشف الفروع والمباني والأقسام والمكاتب في عرض هرمي واضح"
-        )
+        subtitle = QLabel("استكشف الفروع والمباني والأقسام والمكاتب في عرض هرمي واضح")
         subtitle.setObjectName("pageSubtitle")
         title_box.addWidget(title)
         title_box.addWidget(subtitle)
@@ -464,7 +489,9 @@ class OrgStructurePage(QWidget):
         self.quick_search.setPlaceholderText("بحث سريع داخل الشجرة…")
         self.quick_search.setClearButtonEnabled(True)
         self.quick_search.setMinimumWidth(230)
-        self.quick_search.setToolTip("اكتب اسم الوحدة أو مسارها، ثم اختر النتيجة للانتقال إليها")
+        self.quick_search.setToolTip(
+            "اكتب اسم الوحدة أو مسارها، ثم اختر النتيجة للانتقال إليها"
+        )
         self.quick_search_model = QStringListModel([], self)
         self.quick_search_completer = QCompleter(self.quick_search_model, self)
         self.quick_search_completer.setCaseSensitivity(Qt.CaseInsensitive)
@@ -480,9 +507,6 @@ class OrgStructurePage(QWidget):
         self.quick_find_button.clicked.connect(self._quick_find_unit)
         tree_header.addWidget(self.quick_find_button)
 
-        root_legend = QLabel("◆ رئيسي — التوابع أسفلها")
-        root_legend.setObjectName("rootLegend")
-        tree_header.addWidget(root_legend)
         self.btn_collapse = QPushButton("طي الكل")
         self.btn_collapse.setObjectName("toolButton")
         self.btn_collapse.clicked.connect(self._collapse_all)
@@ -495,9 +519,15 @@ class OrgStructurePage(QWidget):
 
         self.tree = QTreeWidget()
         self.tree.setColumnCount(5)
-        self.tree.setHeaderLabels([
-            "الوحدة التنظيمية", "النوع", "الحالة", "عدد العناصر التابعة", "الإجراءات",
-        ])
+        self.tree.setHeaderLabels(
+            [
+                "الوحدة التنظيمية",
+                "النوع",
+                "الحالة",
+                "عدد العناصر التابعة",
+                "الإجراءات",
+            ]
+        )
         self.tree.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tree.setSelectionMode(QAbstractItemView.SingleSelection)
         self.tree.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -676,15 +706,17 @@ class OrgStructurePage(QWidget):
             self._navigate_to_unit(unit_id)
             return
 
-        exact = [u for u in self._all_units if (u.get("name") or "").casefold() == query]
+        exact = [
+            u for u in self._all_units if (u.get("name") or "").casefold() == query
+        ]
         candidates = exact or [
-            u for u in self._all_units
+            u
+            for u in self._all_units
             if (u.get("name") or "").casefold().startswith(query)
         ]
         if not candidates:
             candidates = [
-                u for u in self._all_units
-                if query in (u.get("name") or "").casefold()
+                u for u in self._all_units if query in (u.get("name") or "").casefold()
             ]
 
         if not candidates:
@@ -738,14 +770,20 @@ class OrgStructurePage(QWidget):
         self.tree.setCurrentItem(item, 0)
         self.tree.scrollToItem(item, QAbstractItemView.PositionAtCenter)
         self.tree.setFocus()
-        self.quick_search.setText(
-            self._quick_label_by_id.get(unit_id, "")
-        )
+        self.quick_search.setText(self._quick_label_by_id.get(unit_id, ""))
 
     def load_units(self, *_args):
-        search = self.search_input.text().strip().lower() if hasattr(self, "search_input") else ""
-        type_filter = self.filter_type.currentData() if hasattr(self, "filter_type") else ""
-        status_filter = self.filter_status.currentData() if hasattr(self, "filter_status") else "1"
+        search = (
+            self.search_input.text().strip().lower()
+            if hasattr(self, "search_input")
+            else ""
+        )
+        type_filter = (
+            self.filter_type.currentData() if hasattr(self, "filter_type") else ""
+        )
+        status_filter = (
+            self.filter_status.currentData() if hasattr(self, "filter_status") else "1"
+        )
 
         conn = None
         try:
@@ -833,13 +871,15 @@ class OrgStructurePage(QWidget):
             display_name = unit.get("name") or "(بدون اسم)"
             if is_root_unit:
                 display_name = f"◆ {display_name}  — وحدة رئيسية"
-            item = QTreeWidgetItem([
-                display_name,
-                unit.get("unit_type") or "",
-                "نشط ✓" if bool(unit.get("is_active")) else "معطل",
-                str(count_descendants(unit_id)),
-                "",
-            ])
+            item = QTreeWidgetItem(
+                [
+                    display_name,
+                    unit.get("unit_type") or "",
+                    "نشط ✓" if bool(unit.get("is_active")) else "معطل",
+                    str(count_descendants(unit_id)),
+                    "",
+                ]
+            )
             if is_root_unit:
                 root_font = QFont(item.font(0))
                 root_font.setPointSize(11)
@@ -972,22 +1012,23 @@ class OrgStructurePage(QWidget):
             name = unit.get("name") or "(بدون اسم)"
             path_parts = ancestors + [name]
             parent = units_by_id.get(unit.get("parent_id"))
-            result.append({
-                "id": unit_id,
-                "level": level,
-                "name": name,
-                "unit_type": unit.get("unit_type") or "",
-                "status": "نشط" if bool(unit.get("is_active")) else "معطل",
-                "parent_name": parent.get("name") if parent else "—",
-                "descendants": descendant_count(unit_id),
-                "path": " / ".join(path_parts),
-            })
+            result.append(
+                {
+                    "id": unit_id,
+                    "level": level,
+                    "name": name,
+                    "unit_type": unit.get("unit_type") or "",
+                    "status": "نشط" if bool(unit.get("is_active")) else "معطل",
+                    "parent_name": parent.get("name") if parent else "—",
+                    "descendants": descendant_count(unit_id),
+                    "path": " / ".join(path_parts),
+                }
+            )
             for child in children_by_parent.get(unit_id, []):
                 append_branch(child, level + 1, path_parts)
 
         root_units = [
-            unit for unit in self._all_units
-            if unit.get("parent_id") not in units_by_id
+            unit for unit in self._all_units if unit.get("parent_id") not in units_by_id
         ]
         for unit in root_units:
             append_branch(unit, 0, [])
@@ -1112,7 +1153,9 @@ class OrgStructurePage(QWidget):
                 "لتصدير Excel، ثبّت مكتبة openpyxl:\n\npython -m pip install openpyxl",
             )
         except Exception as error:
-            QMessageBox.critical(self, "خطأ في التصدير", f"تعذر إنشاء ملف Excel:\n{error}")
+            QMessageBox.critical(
+                self, "خطأ في التصدير", f"تعذر إنشاء ملف Excel:\n{error}"
+            )
 
     # ─────────────── Actions ─────────────────────────────────
 
@@ -1125,14 +1168,14 @@ class OrgStructurePage(QWidget):
             return
         data = dlg.get_data()
         try:
-            conn   = get_connection()
+            conn = get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 """
                 INSERT INTO dbo.org_units (name, unit_type, parent_id, is_active, sort_order)
                 VALUES (?, ?, ?, 1, 0)
                 """,
-                (data["name"], data["unit_type"], data["parent_id"])
+                (data["name"], data["unit_type"], data["parent_id"]),
             )
             cursor.execute("SELECT CAST(SCOPE_IDENTITY() AS INT)")
             inserted = cursor.fetchone()
@@ -1159,11 +1202,7 @@ class OrgStructurePage(QWidget):
             QMessageBox.critical(self, "خطأ", f"تعذر الإضافة:\n{e}")
 
     def _edit_unit(self, unit_dict):
-        dlg = OrgUnitDialog(
-            self,
-            unit=unit_dict,
-            all_units=self._get_all_units_list()
-        )
+        dlg = OrgUnitDialog(self, unit=unit_dict, all_units=self._get_all_units_list())
         if dlg.exec() != QDialog.Accepted:
             return
         data = dlg.get_data()
@@ -1177,7 +1216,7 @@ class OrgStructurePage(QWidget):
             self._all_units,
         )
         try:
-            conn   = get_connection()
+            conn = get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 """
@@ -1185,7 +1224,7 @@ class OrgStructurePage(QWidget):
                 SET name = ?, unit_type = ?, parent_id = ?, updated_at = SYSDATETIME()
                 WHERE id = ?
                 """,
-                (data["name"], data["unit_type"], data["parent_id"], unit_dict["id"])
+                (data["name"], data["unit_type"], data["parent_id"], unit_dict["id"]),
             )
             conn.commit()
             conn.close()
@@ -1207,25 +1246,24 @@ class OrgStructurePage(QWidget):
 
     def _delete_unit(self, unit_dict):
         unit_id = unit_dict["id"]
-        name    = unit_dict["name"]
+        name = unit_dict["name"]
 
         # هل له سجلات أحبار؟
         try:
-            conn   = get_connection()
+            conn = get_connection()
             cursor = conn.cursor()
             cursor.execute(
                 """
                 SELECT COUNT(*) FROM dbo.ink_transactions
                 WHERE org_unit_id = ? OR office_id = ?
                 """,
-                (unit_id, unit_id)
+                (unit_id, unit_id),
             )
             used = cursor.fetchone()[0]
 
             # هل له أبناء؟
             cursor.execute(
-                "SELECT COUNT(*) FROM dbo.org_units WHERE parent_id = ?",
-                (unit_id,)
+                "SELECT COUNT(*) FROM dbo.org_units WHERE parent_id = ?", (unit_id,)
             )
             has_children = cursor.fetchone()[0]
             conn.close()
@@ -1238,7 +1276,7 @@ class OrgStructurePage(QWidget):
                 self,
                 "تعذر الحذف",
                 f"العنصر «{name}» لديه {has_children} عنصر تابع.\n"
-                "يجب حذف العناصر التابعة أولاً أو نقلها."
+                "يجب حذف العناصر التابعة أولاً أو نقلها.",
             )
             return
 
@@ -1262,12 +1300,9 @@ class OrgStructurePage(QWidget):
             return
 
         try:
-            conn   = get_connection()
+            conn = get_connection()
             cursor = conn.cursor()
-            cursor.execute(
-                "DELETE FROM dbo.org_units WHERE id = ?",
-                (unit_id,)
-            )
+            cursor.execute("DELETE FROM dbo.org_units WHERE id = ?", (unit_id,))
             conn.commit()
             conn.close()
 

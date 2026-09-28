@@ -22,21 +22,27 @@ def fault_audit_data(fault):
     """Return a JSON-friendly snapshot of the persisted fault fields."""
     if not fault:
         return {}
+
     keys = (
         "id", "fault_number", "entry_date", "building_id", "device_id",
         "user_name", "receiver_name", "fault_description", "repair_actions",
         "spare_parts", "technician", "priority", "status", "repair_date",
         "delivery_date", "notes", "created_at", "updated_at",
     )
+
     snapshot = {}
+
     for key in keys:
         try:
             value = fault[key]
         except (KeyError, IndexError, TypeError):
             continue
+
         if hasattr(value, "isoformat"):
             value = value.isoformat()
+
         snapshot[key] = value
+
     return snapshot
 
 
@@ -238,6 +244,7 @@ QDialogButtonBox QPushButton:hover {
 
 
 class FaultDialog(QDialog):
+
     def __init__(self, parent=None, fault=None):
         super().__init__(parent)
 
@@ -246,24 +253,44 @@ class FaultDialog(QDialog):
         self.setWindowTitle(
             "تعديل عطل" if fault else "إضافة عطل"
         )
+
         screen = self.screen() or QApplication.primaryScreen()
         available = screen.availableGeometry() if screen else None
+
         if available:
-            width = max(320, min(840, int(available.width() * 0.86)))
-            height = max(380, min(640, int(available.height() * 0.82)))
+            width = max(
+                320,
+                min(840, int(available.width() * 0.86))
+            )
+
+            height = max(
+                380,
+                min(640, int(available.height() * 0.82))
+            )
+
         else:
             width, height = 800, 620
+
         self.resize(width, height)
-        self.setMinimumSize(min(620, width), min(480, height))
+
+        self.setMinimumSize(
+            min(620, width),
+            min(480, height)
+        )
+
         if available:
-            self.move(available.center() - self.rect().center())
+            self.move(
+                available.center() - self.rect().center()
+            )
 
         self.setObjectName("dialogRoot")
         self.setStyleSheet(APP_STYLE)
 
         root = QVBoxLayout(self)
 
-        root.setContentsMargins(14, 14, 14, 12)
+        root.setContentsMargins(
+            14, 14, 14, 12
+        )
 
         root.setSpacing(12)
 
@@ -310,14 +337,24 @@ class FaultDialog(QDialog):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarAlwaysOff
+        )
+
         form_widget = QWidget()
+
         form = QGridLayout(form_widget)
-        form.setContentsMargins(6, 8, 6, 8)
+
+        form.setContentsMargins(
+            6, 8, 6, 8
+        )
+
         form.setHorizontalSpacing(12)
         form.setVerticalSpacing(8)
+
         form.setColumnMinimumWidth(0, 86)
         form.setColumnMinimumWidth(2, 86)
+
         form.setColumnStretch(1, 1)
         form.setColumnStretch(3, 1)
 
@@ -327,11 +364,15 @@ class FaultDialog(QDialog):
         self.entry_date = QDateTimeEdit()
         self.entry_date.setCalendarPopup(True)
         self.entry_date.setDateTime(datetime.now())
-        self.entry_date.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.entry_date.setDisplayFormat(
+            "yyyy-MM-dd HH:mm"
+        )
 
         self.device = QComboBox()
         self.device.setEditable(True)
-        self.device.setInsertPolicy(QComboBox.NoInsert)
+        self.device.setInsertPolicy(
+            QComboBox.NoInsert
+        )
 
         self.device.setPlaceholderText(
             "اكتب اسم الجهاز للبحث أو اختر من القائمة..."
@@ -380,6 +421,7 @@ class FaultDialog(QDialog):
 
         self.fault_description = QTextEdit()
         self.repair_actions = QTextEdit()
+
         self.fault_description.setFixedHeight(74)
         self.repair_actions.setFixedHeight(68)
 
@@ -391,7 +433,9 @@ class FaultDialog(QDialog):
         )
 
         self.spare_part_qty = QSpinBox()
-        self.spare_part_qty.setRange(1, 999999)
+        self.spare_part_qty.setRange(
+            1, 999999
+        )
         self.spare_part_qty.setValue(1)
         self.spare_part_qty.setFixedWidth(110)
 
@@ -446,7 +490,9 @@ class FaultDialog(QDialog):
 
         self.repair_date = QDateTimeEdit()
         self.repair_date.setCalendarPopup(True)
-        self.repair_date.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.repair_date.setDisplayFormat(
+            "yyyy-MM-dd HH:mm"
+        )
 
         self.repair_date.setSpecialValueText(
             "غير محدد"
@@ -454,48 +500,158 @@ class FaultDialog(QDialog):
 
         self.delivery_date = QDateTimeEdit()
         self.delivery_date.setCalendarPopup(True)
-        self.delivery_date.setDisplayFormat("yyyy-MM-dd HH:mm")
+        self.delivery_date.setDisplayFormat(
+            "yyyy-MM-dd HH:mm"
+        )
 
         self.delivery_date.setSpecialValueText(
             "غير محدد"
         )
 
-        def add_pair(row, right_label, right_widget, left_label, left_widget):
+        def add_pair(
+            row,
+            right_label,
+            right_widget,
+            left_label,
+            left_widget
+        ):
             for column, label_text, widget in (
                 (0, right_label, right_widget),
                 (2, left_label, left_widget),
             ):
-                label = QLabel(label_text + ":")
-                label.setObjectName("formLabel")
-                label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-                form.addWidget(label, row, column)
-                form.addWidget(widget, row, column + 1)
+                label = QLabel(
+                    label_text + ":"
+                )
 
-        def add_full(row, label_text, widget):
-            label = QLabel(label_text + ":")
-            label.setObjectName("formLabel")
-            label.setAlignment(Qt.AlignRight | Qt.AlignTop)
-            form.addWidget(label, row, 0)
-            form.addWidget(widget, row, 1, 1, 3)
+                label.setObjectName(
+                    "formLabel"
+                )
 
-        add_pair(0, "رقم العطل", self.fault_number,
-                 "تاريخ الدخول", self.entry_date)
-        add_pair(1, "الجهاز *", self.device,
-                 "المبنى / الفرع", self.building)
-        add_full(2, "مواصفات الجهاز", self.device_specs)
-        add_pair(3, "اسم المستخدم", self.user_name,
-                 "اسم المستلم", self.receiver_name)
-        add_full(4, "توصيف العطل *", self.fault_description)
-        add_full(5, "إجراءات الإصلاح", self.repair_actions)
-        add_full(6, "قطع الغيار المستخدمة", self.spare_part_container)
-        add_pair(7, "القائم بالإصلاح", self.technician,
-                 "الأولوية", self.priority)
-        add_pair(8, "حالة العطل", self.status,
-                 "تاريخ الإصلاح", self.repair_date)
-        add_full(9, "تاريخ التسليم", self.delivery_date)
+                label.setAlignment(
+                    Qt.AlignRight |
+                    Qt.AlignVCenter
+                )
+
+                form.addWidget(
+                    label,
+                    row,
+                    column
+                )
+
+                form.addWidget(
+                    widget,
+                    row,
+                    column + 1
+                )
+
+        def add_full(
+            row,
+            label_text,
+            widget
+        ):
+            label = QLabel(
+                label_text + ":"
+            )
+
+            label.setObjectName(
+                "formLabel"
+            )
+
+            label.setAlignment(
+                Qt.AlignRight |
+                Qt.AlignTop
+            )
+
+            form.addWidget(
+                label,
+                row,
+                0
+            )
+
+            form.addWidget(
+                widget,
+                row,
+                1,
+                1,
+                3
+            )
+
+        add_pair(
+            0,
+            "رقم العطل",
+            self.fault_number,
+            "تاريخ الدخول",
+            self.entry_date
+        )
+
+        add_pair(
+            1,
+            "الجهاز *",
+            self.device,
+            "المبنى / الفرع",
+            self.building
+        )
+
+        add_full(
+            2,
+            "مواصفات الجهاز",
+            self.device_specs
+        )
+
+        add_pair(
+            3,
+            "اسم المستخدم",
+            self.user_name,
+            "اسم المستلم",
+            self.receiver_name
+        )
+
+        add_full(
+            4,
+            "توصيف العطل *",
+            self.fault_description
+        )
+
+        add_full(
+            5,
+            "إجراءات الإصلاح",
+            self.repair_actions
+        )
+
+        add_full(
+            6,
+            "قطع الغيار المستخدمة",
+            self.spare_part_container
+        )
+
+        add_pair(
+            7,
+            "القائم بالإصلاح",
+            self.technician,
+            "الأولوية",
+            self.priority
+        )
+
+        add_pair(
+            8,
+            "حالة العطل",
+            self.status,
+            "تاريخ الإصلاح",
+            self.repair_date
+        )
+
+        add_full(
+            9,
+            "تاريخ التسليم",
+            self.delivery_date
+        )
 
         scroll.setWidget(form_widget)
-        root.addWidget(scroll, 1)
+
+        root.addWidget(
+            scroll,
+            1
+        )
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.Save |
@@ -521,6 +677,7 @@ class FaultDialog(QDialog):
             self.spare_part_qty.setEnabled(True)
 
     def select_typed_device(self):
+
         typed = self.device.currentText().strip()
 
         if not typed:
@@ -534,6 +691,7 @@ class FaultDialog(QDialog):
                 return
 
     def load_devices(self):
+
         connection = get_connection()
         cursor = connection.cursor()
 
@@ -580,6 +738,7 @@ class FaultDialog(QDialog):
         )
 
     def load_spare_parts(self):
+
         connection = get_connection()
         cursor = connection.cursor()
 
@@ -606,13 +765,16 @@ class FaultDialog(QDialog):
         )
 
         for part in parts:
+
             label = (
                 f"{part['part_name']} | "
                 f"المتاح: {part['quantity']}"
             )
 
             if part["part_number"]:
-                label += f" | {part['part_number']}"
+                label += (
+                    f" | {part['part_number']}"
+                )
 
             self.spare_part.addItem(
                 label,
@@ -620,6 +782,7 @@ class FaultDialog(QDialog):
             )
 
     def device_changed(self):
+
         device_id = self.device.currentData()
 
         if not device_id:
@@ -672,6 +835,7 @@ class FaultDialog(QDialog):
         )
 
     def generate_fault_number(self):
+
         year = datetime.now().year
 
         connection = get_connection()
@@ -687,10 +851,14 @@ class FaultDialog(QDialog):
 
         connection.close()
 
-        return f"FLT-{year}-{count + 1:04d}"
+        return (
+            f"FLT-{year}-{count + 1:04d}"
+        )
 
     def validate_and_accept(self):
+
         if not self.device.currentData():
+
             QMessageBox.warning(
                 self,
                 "تنبيه",
@@ -701,6 +869,7 @@ class FaultDialog(QDialog):
             return
 
         if not self.fault_description.toPlainText().strip():
+
             QMessageBox.warning(
                 self,
                 "تنبيه",
@@ -713,10 +882,12 @@ class FaultDialog(QDialog):
         self.accept()
 
     def get_data(self):
+
         building_id = None
         device_id = self.device.currentData()
 
         if device_id:
+
             connection = get_connection()
             cursor = connection.cursor()
 
@@ -733,18 +904,25 @@ class FaultDialog(QDialog):
                 building_id = result["building_id"]
 
         return {
-            "fault_number": self.fault_number.text(),
+            "fault_number":
+                self.fault_number.text(),
 
-            "entry_date": self.entry_date.dateTime().toString(
-                "yyyy-MM-dd HH:mm:ss"
-            ),
+            "entry_date":
+                self.entry_date.dateTime().toString(
+                    "yyyy-MM-dd HH:mm:ss"
+                ),
 
-            "building_id": building_id,
-            "device_id": device_id,
+            "building_id":
+                building_id,
 
-            "user_name": self.user_name.text().strip(),
+            "device_id":
+                device_id,
 
-            "receiver_name": self.receiver_name.text().strip(),
+            "user_name":
+                self.user_name.text().strip(),
+
+            "receiver_name":
+                self.receiver_name.text().strip(),
 
             "fault_description":
                 self.fault_description.toPlainText().strip(),
@@ -788,11 +966,13 @@ class FaultDialog(QDialog):
 
             "notes":
                 self.fault["notes"]
-                if self.fault and "notes" in self.fault.keys()
+                if self.fault
+                and "notes" in self.fault.keys()
                 else "",
         }
 
     def load_fault(self):
+
         self.fault_number.setText(
             self.fault["fault_number"]
         )
@@ -809,7 +989,9 @@ class FaultDialog(QDialog):
         )
 
         if index >= 0:
-            self.device.setCurrentIndex(index)
+            self.device.setCurrentIndex(
+                index
+            )
 
         self.user_name.setText(
             self.fault["user_name"] or ""
@@ -827,12 +1009,15 @@ class FaultDialog(QDialog):
             self.fault["repair_actions"] or ""
         )
 
-        saved_parts = self.fault["spare_parts"] or ""
+        saved_parts = (
+            self.fault["spare_parts"] or ""
+        )
 
         self.spare_part.setEnabled(True)
         self.spare_part_qty.setEnabled(True)
 
         if saved_parts:
+
             import re
 
             match = re.search(
@@ -841,6 +1026,7 @@ class FaultDialog(QDialog):
             )
 
             if match:
+
                 part_name = match.group(1).strip()
                 qty = int(match.group(2))
 
@@ -851,14 +1037,20 @@ class FaultDialog(QDialog):
                 for i in range(
                     self.spare_part.count()
                 ):
+
                     label = self.spare_part.itemText(i)
 
                     if (
-                        label.split(" | المتاح:")[0].strip()
+                        label
+                        .split(" | المتاح:")[0]
+                        .strip()
                         == part_name
                     ):
-                        self.spare_part.setCurrentIndex(i)
+                        self.spare_part.setCurrentIndex(
+                            i
+                        )
                         break
+
             else:
                 self.spare_part.setCurrentIndex(0)
 
@@ -885,7 +1077,9 @@ class FaultDialog(QDialog):
             )
 
         try:
+
             if self.fault["repair_date"]:
+
                 self.repair_date.setDateTime(
                     datetime.strptime(
                         self.fault["repair_date"],
@@ -894,6 +1088,7 @@ class FaultDialog(QDialog):
                 )
 
             if self.fault["delivery_date"]:
+
                 self.delivery_date.setDateTime(
                     datetime.strptime(
                         self.fault["delivery_date"],
@@ -906,19 +1101,19 @@ class FaultDialog(QDialog):
 
 
 class FaultReportsDialog(QDialog):
-    """
-    تقرير موقف الأعطال اليومي أو الأسبوعي
-    مع معاينة وطباعة من خلال المتصفح.
-    """
 
     def __init__(self, parent=None):
+
         super().__init__(parent)
 
         self.setWindowTitle(
             "تقارير موقف الأعطال"
         )
 
-        self.resize(1100, 700)
+        self.resize(
+            1100,
+            700
+        )
 
         self.setLayoutDirection(
             Qt.RightToLeft
@@ -995,7 +1190,9 @@ class FaultReportsDialog(QDialog):
             self.calendar
         )
 
-        root.addLayout(controls)
+        root.addLayout(
+            controls
+        )
 
         self.period_label = QLabel()
 
@@ -1051,7 +1248,9 @@ class FaultReportsDialog(QDialog):
             QHeaderView.Stretch
         )
 
-        self.table.setAlternatingRowColors(True)
+        self.table.setAlternatingRowColors(
+            True
+        )
 
         root.addWidget(
             self.table,
@@ -1098,11 +1297,14 @@ class FaultReportsDialog(QDialog):
             self.close_button
         )
 
-        root.addLayout(buttons)
+        root.addLayout(
+            buttons
+        )
 
         self.load_report()
 
     def date_range(self):
+
         date = self.calendar.selectedDate()
 
         start = date
@@ -1117,6 +1319,7 @@ class FaultReportsDialog(QDialog):
         )
 
     def load_report(self):
+
         start, end = self.date_range()
 
         self.period_label.setText(
@@ -1154,6 +1357,7 @@ class FaultReportsDialog(QDialog):
         self.table.setRowCount(0)
 
         for fault in rows:
+
             row = self.table.rowCount()
 
             self.table.insertRow(row)
@@ -1170,6 +1374,7 @@ class FaultReportsDialog(QDialog):
             ]
 
             for col, value in enumerate(values):
+
                 item = QTableWidgetItem(
                     str(value)
                 )
@@ -1187,7 +1392,11 @@ class FaultReportsDialog(QDialog):
         counts = {}
 
         for fault in rows:
-            status = fault["status"] or "غير محدد"
+
+            status = (
+                fault["status"]
+                or "غير محدد"
+            )
 
             counts[status] = (
                 counts.get(status, 0) + 1
@@ -1204,18 +1413,18 @@ class FaultReportsDialog(QDialog):
             (
                 f"  |  {details}"
                 if details
-                else "  |  لا توجد أعطال خلال الفترة المحددة."
+                else
+                "  |  لا توجد أعطال خلال الفترة المحددة."
             )
         )
 
     def print_report(self):
-        """
-        تجهيز التقرير كملف HTML وفتحه في المتصفح
-        لمعاينته ثم طباعته على ورق A4.
-        """
 
         try:
-            report_html = self.build_print_html()
+
+            report_html = (
+                self.build_print_html()
+            )
 
             reports_dir = (
                 Path(tempfile.gettempdir())
@@ -1232,19 +1441,21 @@ class FaultReportsDialog(QDialog):
                 f"{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
             )
 
-            file_path = reports_dir / file_name
+            file_path = (
+                reports_dir / file_name
+            )
 
             file_path.write_text(
                 report_html,
                 encoding="utf-8"
             )
 
-            # فتح التقرير في المتصفح الافتراضي
             webbrowser.open(
                 file_path.resolve().as_uri()
             )
 
         except Exception as exc:
+
             QMessageBox.critical(
                 self,
                 "خطأ في التقرير",
@@ -1253,10 +1464,6 @@ class FaultReportsDialog(QDialog):
             )
 
     def build_print_html(self):
-        """
-        بناء تقرير HTML كامل ومنسق
-        للطباعة على A4 أفقي.
-        """
 
         start, end = self.date_range()
 
@@ -1317,6 +1524,7 @@ class FaultReportsDialog(QDialog):
             """
 
         if not rows_html:
+
             rows_html = """
                 <tr>
                     <td
@@ -1568,7 +1776,6 @@ tbody tr:nth-child(even) td {{
 
     </div>
 
-
     <div class="info-grid">
 
         <div class="info-card">
@@ -1583,7 +1790,6 @@ tbody tr:nth-child(even) td {{
 
         </div>
 
-
         <div class="info-card">
 
             <span class="info-label">
@@ -1595,7 +1801,6 @@ tbody tr:nth-child(even) td {{
             </span>
 
         </div>
-
 
         <div class="info-card">
 
@@ -1610,7 +1815,6 @@ tbody tr:nth-child(even) td {{
         </div>
 
     </div>
-
 
     <table>
 
@@ -1631,42 +1835,18 @@ tbody tr:nth-child(even) td {{
 
             <tr>
 
-                <th>
-                    رقم العطل
-                </th>
-
-                <th>
-                    التاريخ
-                </th>
-
-                <th>
-                    الجهاز
-                </th>
-
-                <th>
-                    المستخدم
-                </th>
-
-                <th>
-                    الحالة
-                </th>
-
-                <th>
-                    الأولوية
-                </th>
-
-                <th>
-                    القائم بالإصلاح
-                </th>
-
-                <th>
-                    وصف العطل
-                </th>
+                <th>رقم العطل</th>
+                <th>التاريخ</th>
+                <th>الجهاز</th>
+                <th>المستخدم</th>
+                <th>الحالة</th>
+                <th>الأولوية</th>
+                <th>القائم بالإصلاح</th>
+                <th>وصف العطل</th>
 
             </tr>
 
         </thead>
-
 
         <tbody>
 
@@ -1675,7 +1855,6 @@ tbody tr:nth-child(even) td {{
         </tbody>
 
     </table>
-
 
     <div class="footer">
 
@@ -1697,22 +1876,29 @@ tbody tr:nth-child(even) td {{
 """
 
 
-
 class FaultsPage(QWidget):
+
     PAGE_SIZE = 50
 
     def __init__(self, current_user=None):
+
         super().__init__()
 
-        self.current_user = current_user or {}
+        self.current_user = (
+            current_user or {}
+        )
+
         self._page = 0
         self._total = 0
 
         self.setup_ui()
+
         self.load_building_filter()
+
         self.load_faults()
 
     def setup_ui(self):
+
         self.setObjectName(
             "pageRoot"
         )
@@ -1729,10 +1915,6 @@ class FaultsPage(QWidget):
 
         main_layout.setSpacing(14)
 
-        # =========================================================
-        # العنوان والأزرار
-        # =========================================================
-
         title_layout = QHBoxLayout()
 
         title_box = QVBoxLayout()
@@ -1746,9 +1928,7 @@ class FaultsPage(QWidget):
             "pageTitle"
         )
 
-        title_box.addWidget(
-            title
-        )
+        title_box.addWidget(title)
 
         subtitle = QLabel(
             "متابعة الأعطال وحالات الإصلاح والتسليم بسهولة"
@@ -1864,10 +2044,6 @@ class FaultsPage(QWidget):
             title_layout
         )
 
-        # =========================================================
-        # البحث
-        # =========================================================
-
         search_card = QFrame()
 
         search_card.setObjectName(
@@ -1916,10 +2092,6 @@ class FaultsPage(QWidget):
         main_layout.addWidget(
             search_card
         )
-
-        # =========================================================
-        # فلاتر الأعطال
-        # =========================================================
 
         filter_card = QFrame()
 
@@ -2047,10 +2219,6 @@ class FaultsPage(QWidget):
             filter_card
         )
 
-        # =========================================================
-        # جدول الأعطال
-        # =========================================================
-
         table_card = QFrame()
 
         table_card.setObjectName(
@@ -2067,9 +2235,7 @@ class FaultsPage(QWidget):
 
         self.table = QTableWidget()
 
-        self.table.setColumnCount(
-            8
-        )
+        self.table.setColumnCount(8)
 
         self.table.setHorizontalHeaderLabels([
             "ID",
@@ -2115,53 +2281,85 @@ class FaultsPage(QWidget):
             self.edit_fault
         )
 
-        # تطبيق صلاحيات المستخدم على عناصر صفحة الأعطال
         self.apply_permissions()
 
         table_layout.addWidget(
             self.table
         )
 
-        # =========================================================
-        # Pagination
-        # =========================================================
-
         pagination_row = QHBoxLayout()
 
         self.stats_label = QLabel("")
+
         self.stats_label.setStyleSheet(
             "color: #64748b; font-size: 11px;"
         )
+
         pagination_row.addWidget(
             self.stats_label
         )
+
         pagination_row.addStretch()
 
-        self.previous_button = QPushButton("◀  السابق")
-        self.previous_button.setObjectName("secondaryButton")
-        self.previous_button.setMinimumHeight(32)
+        self.previous_button = QPushButton(
+            "◀  السابق"
+        )
+
+        self.previous_button.setObjectName(
+            "secondaryButton"
+        )
+
+        self.previous_button.setMinimumHeight(
+            32
+        )
+
         self.previous_button.clicked.connect(
             self._previous_page
         )
 
-        self.page_label = QLabel("صفحة 1 / 1")
-        self.page_label.setAlignment(Qt.AlignCenter)
+        self.page_label = QLabel(
+            "صفحة 1 / 1"
+        )
+
+        self.page_label.setAlignment(
+            Qt.AlignCenter
+        )
+
         self.page_label.setStyleSheet(
             "font-weight: 700; min-width: 80px;"
         )
 
-        self.next_button = QPushButton("التالي  ▶")
-        self.next_button.setObjectName("secondaryButton")
-        self.next_button.setMinimumHeight(32)
+        self.next_button = QPushButton(
+            "التالي  ▶"
+        )
+
+        self.next_button.setObjectName(
+            "secondaryButton"
+        )
+
+        self.next_button.setMinimumHeight(
+            32
+        )
+
         self.next_button.clicked.connect(
             self._next_page
         )
 
-        pagination_row.addWidget(self.previous_button)
-        pagination_row.addWidget(self.page_label)
-        pagination_row.addWidget(self.next_button)
+        pagination_row.addWidget(
+            self.previous_button
+        )
 
-        table_layout.addLayout(pagination_row)
+        pagination_row.addWidget(
+            self.page_label
+        )
+
+        pagination_row.addWidget(
+            self.next_button
+        )
+
+        table_layout.addLayout(
+            pagination_row
+        )
 
         main_layout.addWidget(
             table_card,
@@ -2173,45 +2371,114 @@ class FaultsPage(QWidget):
     # =============================================================
 
     def has_permission(self, permission_code):
-        """التحقق من صلاحية المستخدم الحالية."""
+
         if not self.current_user:
             return False
 
-        if self.current_user.get("role_code") == "SUPER_ADMIN":
+        if (
+            self.current_user.get("role_code")
+            == "SUPER_ADMIN"
+        ):
             return True
 
-        permissions = self.current_user.get("permissions", {})
-        return bool(permissions.get(permission_code, False))
+        permissions = (
+            self.current_user.get(
+                "permissions",
+                {}
+            )
+        )
+
+        return bool(
+            permissions.get(
+                permission_code,
+                False
+            )
+        )
 
     def apply_permissions(self):
-        """إظهار/إخفاء إجراءات صفحة الأعطال حسب الصلاحيات."""
-        can_view = self.has_permission("faults.view")
-        can_add = self.has_permission("faults.add")
-        can_edit = self.has_permission("faults.edit")
-        can_delete = self.has_permission("faults.delete")
-        can_reports = self.has_permission("reports.view")
 
-        self.add_button.setVisible(can_add)
-        self.edit_button.setVisible(can_edit)
-        self.delete_button.setVisible(can_delete)
-        self.import_button.setVisible(can_add)
-        self.report_button.setVisible(can_reports)
+        can_view = self.has_permission(
+            "faults.view"
+        )
 
-        # الصفحة نفسها تُفتح فقط لمن لديه صلاحية العرض.
-        self.setEnabled(can_view)
+        can_add = self.has_permission(
+            "faults.add"
+        )
+
+        can_edit = self.has_permission(
+            "faults.edit"
+        )
+
+        can_delete = self.has_permission(
+            "faults.delete"
+        )
+
+        can_reports = self.has_permission(
+            "reports.view"
+        )
+
+        self.add_button.setVisible(
+            can_add
+        )
+
+        self.edit_button.setVisible(
+            can_edit
+        )
+
+        self.delete_button.setVisible(
+            can_delete
+        )
+
+        self.import_button.setVisible(
+            can_add
+        )
+
+        self.report_button.setVisible(
+            can_reports
+        )
+
+        self.setEnabled(
+            can_view
+        )
 
     # =============================================================
     # تحميل فلتر المباني
     # =============================================================
 
     def load_building_filter(self):
+        """
+        تحميل المباني التي لديها أعطال فقط.
+
+        أي مبنى ليس لديه أي سجل في جدول faults
+        لن يظهر داخل فلتر المباني.
+
+        وعند حذف آخر عطل من مبنى:
+        يختفي المبنى من الفلتر تلقائيًا.
+
+        وعند إضافة أول عطل لمبنى:
+        يظهر المبنى تلقائيًا.
+        """
+
+        # الاحتفاظ بالمبنى المختار حاليًا
+        current_building_id = (
+            self.building_filter.currentData()
+            if self.building_filter.count() > 0
+            else None
+        )
+
         connection = get_connection()
         cursor = connection.cursor()
 
         cursor.execute("""
-            SELECT id, name
-            FROM buildings
-            ORDER BY name
+            SELECT DISTINCT
+                b.id,
+                b.name
+            FROM buildings b
+            INNER JOIN faults f
+                ON f.building_id = b.id
+            WHERE b.name IS NOT NULL
+              AND LTRIM(RTRIM(b.name)) <> ''
+            ORDER BY b.name
         """)
 
         buildings = cursor.fetchall()
@@ -2230,9 +2497,36 @@ class FaultsPage(QWidget):
         )
 
         for building in buildings:
+
             self.building_filter.addItem(
                 building["name"],
                 building["id"]
+            )
+
+        # إعادة اختيار المبنى السابق
+        # إذا كان ما زال موجودًا
+        if current_building_id is not None:
+
+            index = self.building_filter.findData(
+                current_building_id
+            )
+
+            if index >= 0:
+
+                self.building_filter.setCurrentIndex(
+                    index
+                )
+
+            else:
+
+                self.building_filter.setCurrentIndex(
+                    0
+                )
+
+        else:
+
+            self.building_filter.setCurrentIndex(
+                0
             )
 
         self.building_filter.blockSignals(
@@ -2244,21 +2538,11 @@ class FaultsPage(QWidget):
     # =============================================================
 
     def clear_fault_filters(self):
-        self.search_box.blockSignals(
-            True
-        )
 
-        self.status_filter.blockSignals(
-            True
-        )
-
-        self.priority_filter.blockSignals(
-            True
-        )
-
-        self.building_filter.blockSignals(
-            True
-        )
+        self.search_box.blockSignals(True)
+        self.status_filter.blockSignals(True)
+        self.priority_filter.blockSignals(True)
+        self.building_filter.blockSignals(True)
 
         self.search_box.clear()
 
@@ -2274,32 +2558,27 @@ class FaultsPage(QWidget):
             0
         )
 
-        self.search_box.blockSignals(
-            False
-        )
-
-        self.status_filter.blockSignals(
-            False
-        )
-
-        self.priority_filter.blockSignals(
-            False
-        )
-
-        self.building_filter.blockSignals(
-            False
-        )
+        self.search_box.blockSignals(False)
+        self.status_filter.blockSignals(False)
+        self.priority_filter.blockSignals(False)
+        self.building_filter.blockSignals(False)
 
         self._page = 0
+
         self.load_faults()
 
     def show_reports(self):
-        if not self.has_permission("reports.view"):
+
+        if not self.has_permission(
+            "reports.view"
+        ):
+
             QMessageBox.warning(
                 self,
                 "غير مسموح",
                 "ليس لديك صلاحية عرض التقارير."
             )
+
             return
 
         dialog = FaultReportsDialog(
@@ -2313,6 +2592,7 @@ class FaultsPage(QWidget):
     # =============================================================
 
     def _normalize_excel_header(self, value):
+
         if value is None:
             return ""
 
@@ -2327,6 +2607,7 @@ class FaultsPage(QWidget):
         }
 
         for old, new in replacements.items():
+
             value = value.replace(
                 old,
                 new
@@ -2342,16 +2623,19 @@ class FaultsPage(QWidget):
         headers,
         *names
     ):
+
         wanted = {
             self._normalize_excel_header(name)
             for name in names
         }
 
         for header, index in headers.items():
+
             if (
                 self._normalize_excel_header(header)
                 in wanted
             ):
+
                 value = row[index]
 
                 if value is None:
@@ -2366,15 +2650,22 @@ class FaultsPage(QWidget):
         connection,
         building_name
     ):
+
         if not building_name:
             return None
 
         cursor = connection.cursor()
 
+        # SQL Server: TOP 1 بدل LIMIT 1
         cursor.execute(
-            "SELECT id FROM buildings "
-            "WHERE name = ? LIMIT 1",
-            (building_name.strip(),)
+            """
+            SELECT TOP 1 id
+            FROM buildings
+            WHERE name = ?
+            """,
+            (
+                building_name.strip(),
+            )
         )
 
         result = cursor.fetchone()
@@ -2383,11 +2674,29 @@ class FaultsPage(QWidget):
             return result["id"]
 
         cursor.execute(
-            "INSERT INTO buildings (name) VALUES (?)",
-            (building_name.strip(),)
+            """
+            INSERT INTO buildings (name)
+            VALUES (?)
+            """,
+            (
+                building_name.strip(),
+            )
         )
 
-        return cursor.lastrowid
+        # SQL Server
+        cursor.execute(
+            """
+            SELECT CAST(SCOPE_IDENTITY() AS INT) AS id
+            """
+        )
+
+        result = cursor.fetchone()
+
+        return (
+            result["id"]
+            if result
+            else None
+        )
 
     def _find_device_id(
         self,
@@ -2395,12 +2704,14 @@ class FaultsPage(QWidget):
         device_name,
         building_id=None
     ):
+
         if not device_name:
             return None
 
         cursor = connection.cursor()
 
         if building_id:
+
             cursor.execute(
                 """
                 SELECT TOP 1 id
@@ -2427,7 +2738,9 @@ class FaultsPage(QWidget):
             WHERE device_name = ?
               AND is_archived = 0
             """,
-            (device_name.strip(),)
+            (
+                device_name.strip(),
+            )
         )
 
         result = cursor.fetchone()
@@ -2442,28 +2755,41 @@ class FaultsPage(QWidget):
         self,
         connection
     ):
+
         cursor = connection.cursor()
 
         year = datetime.now().year
 
         cursor.execute(
-            "SELECT COUNT(*) FROM faults "
-            "WHERE fault_number LIKE ?",
-            (f"OLD-{year}-%",)
+            """
+            SELECT COUNT(*)
+            FROM faults
+            WHERE fault_number LIKE ?
+            """,
+            (
+                f"OLD-{year}-%",
+            )
         )
 
         count = cursor.fetchone()[0]
+
         number = count + 1
 
         while True:
+
             fault_number = (
                 f"OLD-{year}-{number:05d}"
             )
 
             cursor.execute(
-                "SELECT 1 FROM faults "
-                "WHERE fault_number = ? LIMIT 1",
-                (fault_number,)
+                """
+                SELECT TOP 1 1
+                FROM faults
+                WHERE fault_number = ?
+                """,
+                (
+                    fault_number,
+                )
             )
 
             if not cursor.fetchone():
@@ -2475,20 +2801,21 @@ class FaultsPage(QWidget):
         self,
         value
     ):
-        """
-        يحافظ على تاريخ Excel إن كان تاريخًا حقيقيًا،
-        وإلا يحاول قراءة النص.
-        """
 
         if (
             value is None
             or str(value).strip() == ""
         ):
+
             return datetime.now().strftime(
                 "%Y-%m-%d %H:%M:%S"
             )
 
-        if hasattr(value, "strftime"):
+        if hasattr(
+            value,
+            "strftime"
+        ):
+
             return value.strftime(
                 "%Y-%m-%d %H:%M:%S"
             )
@@ -2503,7 +2830,9 @@ class FaultsPage(QWidget):
             "%d/%m/%y",
             "%d-%m-%y",
         ):
+
             try:
+
                 return datetime.strptime(
                     raw,
                     fmt
@@ -2521,23 +2850,25 @@ class FaultsPage(QWidget):
     # =============================================================
 
     def import_from_excel(self):
-        if not self.has_permission("faults.add"):
+
+        if not self.has_permission(
+            "faults.add"
+        ):
+
             QMessageBox.warning(
                 self,
                 "غير مسموح",
                 "ليس لديك صلاحية استيراد الأعطال من Excel."
             )
+
             return
 
-        """
-        استيراد الأعطال التاريخية من Excel
-        وفق أعمدة النظام الحالية.
-        """
-
         try:
+
             from openpyxl import load_workbook
 
         except ImportError:
+
             QMessageBox.critical(
                 self,
                 "مكتبة ناقصة",
@@ -2559,6 +2890,7 @@ class FaultsPage(QWidget):
             return
 
         try:
+
             workbook = load_workbook(
                 file_path,
                 data_only=True,
@@ -2574,6 +2906,7 @@ class FaultsPage(QWidget):
             )
 
             if not rows:
+
                 workbook.close()
 
                 QMessageBox.warning(
@@ -2623,6 +2956,7 @@ class FaultsPage(QWidget):
             ]
 
             if missing:
+
                 workbook.close()
 
                 QMessageBox.warning(
@@ -2646,6 +2980,7 @@ class FaultsPage(QWidget):
             ]
 
             if not data_rows:
+
                 workbook.close()
 
                 QMessageBox.information(
@@ -2690,10 +3025,7 @@ class FaultsPage(QWidget):
                 Qt.WindowModal
             )
 
-            progress.setMinimumDuration(
-                0
-            )
-
+            progress.setMinimumDuration(0)
             progress.show()
 
             connection = get_connection()
@@ -2704,11 +3036,14 @@ class FaultsPage(QWidget):
             errors = []
 
             try:
+
                 for row_number, row in enumerate(
                     data_rows,
                     start=2
                 ):
+
                     if progress.wasCanceled():
+
                         connection.rollback()
 
                         QMessageBox.information(
@@ -2789,6 +3124,7 @@ class FaultsPage(QWidget):
                         and not fault_description
                         and not user_name
                     ):
+
                         skipped += 1
                         continue
 
@@ -2803,8 +3139,10 @@ class FaultsPage(QWidget):
                         building_id
                     )
 
-                    entry_date = self._parse_import_date(
-                        received_date_raw
+                    entry_date = (
+                        self._parse_import_date(
+                            received_date_raw
+                        )
                     )
 
                     status = (
@@ -2880,10 +3218,12 @@ class FaultsPage(QWidget):
                 connection.commit()
 
             except Exception:
+
                 connection.rollback()
                 raise
 
             finally:
+
                 connection.close()
 
             progress.setValue(
@@ -2895,20 +3235,27 @@ class FaultsPage(QWidget):
                 action="استيراد",
                 module_name="الأعطال",
                 description=(
-                    f"تم استيراد الأعطال من ملف Excel: {Path(file_path).name}"
+                    f"تم استيراد الأعطال من ملف Excel: "
+                    f"{Path(file_path).name}"
                     f"\nالأعطال المضافة: {imported}"
                     f"\nالصفوف المتجاهلة: {skipped}"
                     f"\nإجمالي الصفوف: {len(data_rows)}"
                 ),
                 new_values={
-                    "file": Path(file_path).name,
-                    "total_rows": len(data_rows),
-                    "imported_faults": imported,
-                    "skipped_rows": skipped,
+                    "file":
+                        Path(file_path).name,
+                    "total_rows":
+                        len(data_rows),
+                    "imported_faults":
+                        imported,
+                    "skipped_rows":
+                        skipped,
                 },
             )
 
+            # تحديث فلتر المباني بعد الاستيراد
             self.load_building_filter()
+
             self.load_faults()
 
             message = (
@@ -2917,6 +3264,7 @@ class FaultsPage(QWidget):
             )
 
             if errors:
+
                 message += (
                     "\n\nصفوف بها مشاكل:\n"
                     + "\n".join(errors[:10])
@@ -2929,6 +3277,7 @@ class FaultsPage(QWidget):
             )
 
         except Exception as exc:
+
             QMessageBox.critical(
                 self,
                 "خطأ في الاستيراد",
@@ -2939,46 +3288,82 @@ class FaultsPage(QWidget):
     # تحميل الأعطال + الفلاتر
     # =============================================================
 
-    def _reset_page_and_load_faults(self, *_args):
+    def _reset_page_and_load_faults(
+        self,
+        *_args
+    ):
+
         self._page = 0
+
         self.load_faults()
 
-    def _previous_page(self, _checked=False):
+    def _previous_page(
+        self,
+        _checked=False
+    ):
+
         if self._page > 0:
+
             self._page -= 1
+
             self.load_faults()
 
-    def _next_page(self, _checked=False):
+    def _next_page(
+        self,
+        _checked=False
+    ):
+
         total_pages = max(
             1,
-            (self._total + self.PAGE_SIZE - 1) // self.PAGE_SIZE,
+            (
+                self._total
+                + self.PAGE_SIZE
+                - 1
+            )
+            // self.PAGE_SIZE
         )
+
         if self._page < total_pages - 1:
+
             self._page += 1
+
             self.load_faults()
 
     def load_faults(self):
+
         search = (
             self.search_box.text().strip()
-            if hasattr(self, "search_box")
+            if hasattr(
+                self,
+                "search_box"
+            )
             else ""
         )
 
         status = (
             self.status_filter.currentText()
-            if hasattr(self, "status_filter")
+            if hasattr(
+                self,
+                "status_filter"
+            )
             else "كل الحالات"
         )
 
         priority = (
             self.priority_filter.currentText()
-            if hasattr(self, "priority_filter")
+            if hasattr(
+                self,
+                "priority_filter"
+            )
             else "كل الأولويات"
         )
 
         building_id = (
             self.building_filter.currentData()
-            if hasattr(self, "building_filter")
+            if hasattr(
+                self,
+                "building_filter"
+            )
             else None
         )
 
@@ -3000,11 +3385,8 @@ class FaultsPage(QWidget):
 
         params = []
 
-        # ---------------------------------------------------------
-        # البحث
-        # ---------------------------------------------------------
-
         if search:
+
             query += """
                 AND (
                     faults.fault_number LIKE ?
@@ -3027,11 +3409,8 @@ class FaultsPage(QWidget):
                 keyword
             ])
 
-        # ---------------------------------------------------------
-        # فلتر الحالة
-        # ---------------------------------------------------------
-
         if status != "كل الحالات":
+
             query += """
                 AND faults.status = ?
             """
@@ -3040,11 +3419,8 @@ class FaultsPage(QWidget):
                 status
             )
 
-        # ---------------------------------------------------------
-        # فلتر الأولوية
-        # ---------------------------------------------------------
-
         if priority != "كل الأولويات":
+
             query += """
                 AND faults.priority = ?
             """
@@ -3053,11 +3429,8 @@ class FaultsPage(QWidget):
                 priority
             )
 
-        # ---------------------------------------------------------
-        # فلتر المبنى
-        # ---------------------------------------------------------
-
         if building_id:
+
             query += """
                 AND faults.building_id = ?
             """
@@ -3080,27 +3453,39 @@ class FaultsPage(QWidget):
         connection.close()
 
         self._total = len(faults)
+
         total_pages = max(
             1,
-            (self._total + self.PAGE_SIZE - 1) // self.PAGE_SIZE,
+            (
+                self._total
+                + self.PAGE_SIZE
+                - 1
+            )
+            // self.PAGE_SIZE
         )
+
         self._page = min(
             self._page,
             total_pages - 1,
         )
-        start = self._page * self.PAGE_SIZE
-        visible_faults = faults[start:start + self.PAGE_SIZE]
 
-        self.table.setRowCount(
-            0
+        start = (
+            self._page
+            * self.PAGE_SIZE
         )
 
+        visible_faults = faults[
+            start:
+            start + self.PAGE_SIZE
+        ]
+
+        self.table.setRowCount(0)
+
         for fault in visible_faults:
+
             row = self.table.rowCount()
 
-            self.table.insertRow(
-                row
-            )
+            self.table.insertRow(row)
 
             values = [
                 fault["id"],
@@ -3116,6 +3501,7 @@ class FaultsPage(QWidget):
             for column, value in enumerate(
                 values
             ):
+
                 item = QTableWidgetItem(
                     str(value or "")
                 )
@@ -3133,12 +3519,15 @@ class FaultsPage(QWidget):
         self.page_label.setText(
             f"صفحة {self._page + 1} / {total_pages}"
         )
+
         self.previous_button.setEnabled(
             self._page > 0
         )
+
         self.next_button.setEnabled(
             self._page < total_pages - 1
         )
+
         self.stats_label.setText(
             f"إجمالي الأعطال: {self._total}  |  "
             f"المعروض في الصفحة: {len(visible_faults)}"
@@ -3149,12 +3538,17 @@ class FaultsPage(QWidget):
     # =============================================================
 
     def add_fault(self):
-        if not self.has_permission("faults.add"):
+
+        if not self.has_permission(
+            "faults.add"
+        ):
+
             QMessageBox.warning(
                 self,
                 "غير مسموح",
                 "ليس لديك صلاحية إضافة الأعطال."
             )
+
             return
 
         dialog = FaultDialog(
@@ -3173,8 +3567,8 @@ class FaultsPage(QWidget):
         connection = get_connection()
         cursor = connection.cursor()
 
-        # خصم قطعة الغيار تلقائيًا عند تسجيل العطل
         if data["spare_part_id"]:
+
             cursor.execute(
                 """
                 SELECT
@@ -3185,12 +3579,15 @@ class FaultsPage(QWidget):
                 WHERE id = ?
                   AND is_archived = 0
                 """,
-                (data["spare_part_id"],)
+                (
+                    data["spare_part_id"],
+                )
             )
 
             part = cursor.fetchone()
 
             if not part:
+
                 connection.close()
 
                 QMessageBox.warning(
@@ -3205,6 +3602,7 @@ class FaultsPage(QWidget):
                 part["quantity"]
                 < data["spare_part_qty"]
             ):
+
                 connection.close()
 
                 QMessageBox.warning(
@@ -3218,9 +3616,14 @@ class FaultsPage(QWidget):
                 return
 
         cursor.execute(
-            "SELECT building_id FROM devices "
-            "WHERE id = ?",
-            (data["device_id"],)
+            """
+            SELECT building_id
+            FROM devices
+            WHERE id = ?
+            """,
+            (
+                data["device_id"],
+            )
         )
 
         result = cursor.fetchone()
@@ -3280,13 +3683,21 @@ class FaultsPage(QWidget):
             WHERE fault_number = ?
             ORDER BY id DESC
             """,
-            (data["fault_number"],)
+            (
+                data["fault_number"],
+            )
         )
-        inserted_fault = cursor.fetchone()
-        new_fault_id = inserted_fault["id"] if inserted_fault else None
 
-        # خصم المخزون وتسجيل حركة الصرف
+        inserted_fault = cursor.fetchone()
+
+        new_fault_id = (
+            inserted_fault["id"]
+            if inserted_fault
+            else None
+        )
+
         if data["spare_part_id"]:
+
             cursor.execute(
                 """
                 UPDATE spare_parts
@@ -3304,6 +3715,7 @@ class FaultsPage(QWidget):
             )
 
             if cursor.rowcount != 1:
+
                 connection.rollback()
                 connection.close()
 
@@ -3318,12 +3730,12 @@ class FaultsPage(QWidget):
             cursor.execute(
                 """
                 INSERT INTO spare_part_movements
-                    (
-                        spare_part_id,
-                        movement_type,
-                        quantity,
-                        notes
-                    )
+                (
+                    spare_part_id,
+                    movement_type,
+                    quantity,
+                    notes
+                )
                 VALUES (
                     ?,
                     'صرف',
@@ -3343,16 +3755,30 @@ class FaultsPage(QWidget):
         connection.close()
 
         audit_new_values = dict(data)
-        audit_new_values["building_id"] = building_id
-        audit_new_values["id"] = new_fault_id
+
+        audit_new_values["building_id"] = (
+            building_id
+        )
+
+        audit_new_values["id"] = (
+            new_fault_id
+        )
+
         write_audit_log(
             user=self.current_user,
             action="إضافة",
             module_name="الأعطال",
             record_id=new_fault_id,
-            description=f"تم تسجيل العطل رقم {data['fault_number']}",
+            description=(
+                f"تم تسجيل العطل رقم "
+                f"{data['fault_number']}"
+            ),
             new_values=audit_new_values,
         )
+
+        # مهم:
+        # تحديث فلتر المباني بعد إضافة العطل
+        self.load_building_filter()
 
         self.load_faults()
 
@@ -3361,17 +3787,23 @@ class FaultsPage(QWidget):
     # =============================================================
 
     def edit_fault(self):
-        if not self.has_permission("faults.edit"):
+
+        if not self.has_permission(
+            "faults.edit"
+        ):
+
             QMessageBox.warning(
                 self,
                 "غير مسموح",
                 "ليس لديك صلاحية تعديل الأعطال."
             )
+
             return
 
         selected = self.table.selectedItems()
 
         if not selected:
+
             QMessageBox.information(
                 self,
                 "تنبيه",
@@ -3394,15 +3826,21 @@ class FaultsPage(QWidget):
 
         cursor.execute(
             "SELECT * FROM faults WHERE id = ?",
-            (fault_id,)
+            (
+                fault_id,
+            )
         )
 
         old_fault = cursor.fetchone()
-        old_values = fault_audit_data(old_fault)
+
+        old_values = fault_audit_data(
+            old_fault
+        )
 
         connection.close()
 
         if not old_fault:
+
             QMessageBox.warning(
                 self,
                 "تنبيه",
@@ -3425,6 +3863,7 @@ class FaultsPage(QWidget):
         cursor = connection.cursor()
 
         try:
+
             cursor.execute(
                 """
                 SELECT TOP 1 id,
@@ -3460,7 +3899,9 @@ class FaultsPage(QWidget):
             )
 
             new_qty = int(
-                data.get("spare_part_qty")
+                data.get(
+                    "spare_part_qty"
+                )
                 or 0
             )
 
@@ -3469,8 +3910,8 @@ class FaultsPage(QWidget):
                 and old_qty > 0
             )
 
-            # إرجاع القطعة القديمة
             if old_has_part:
+
                 cursor.execute(
                     """
                     UPDATE spare_parts
@@ -3486,6 +3927,7 @@ class FaultsPage(QWidget):
                 )
 
                 if cursor.rowcount != 1:
+
                     connection.rollback()
                     connection.close()
 
@@ -3498,13 +3940,17 @@ class FaultsPage(QWidget):
                     return
 
                 cursor.execute(
-                    "DELETE FROM spare_part_movements "
-                    "WHERE id = ?",
-                    (old_movement["id"],)
+                    """
+                    DELETE FROM spare_part_movements
+                    WHERE id = ?
+                    """,
+                    (
+                        old_movement["id"],
+                    )
                 )
 
-            # خصم القطعة الجديدة
             if new_spare_id and new_qty > 0:
+
                 cursor.execute(
                     """
                     SELECT
@@ -3515,12 +3961,15 @@ class FaultsPage(QWidget):
                     WHERE id = ?
                       AND is_archived = 0
                     """,
-                    (new_spare_id,)
+                    (
+                        new_spare_id,
+                    )
                 )
 
                 new_part = cursor.fetchone()
 
                 if not new_part:
+
                     connection.rollback()
                     connection.close()
 
@@ -3536,6 +3985,7 @@ class FaultsPage(QWidget):
                     int(new_part["quantity"])
                     < new_qty
                 ):
+
                     connection.rollback()
                     connection.close()
 
@@ -3566,6 +4016,7 @@ class FaultsPage(QWidget):
                 )
 
                 if cursor.rowcount != 1:
+
                     connection.rollback()
                     connection.close()
 
@@ -3601,7 +4052,6 @@ class FaultsPage(QWidget):
                     )
                 )
 
-            # تحديث بيانات العطل
             cursor.execute(
                 """
                 UPDATE faults SET
@@ -3636,7 +4086,10 @@ class FaultsPage(QWidget):
                     data["status"],
                     data["repair_date"],
                     data["delivery_date"],
-                    data.get("notes", ""),
+                    data.get(
+                        "notes",
+                        ""
+                    ),
                     fault_id,
                 )
             )
@@ -3644,20 +4097,35 @@ class FaultsPage(QWidget):
             connection.commit()
             connection.close()
 
-            audit_new_values = dict(data)
+            audit_new_values = dict(
+                data
+            )
+
             audit_new_values.update({
                 "id": fault_id,
-                "fault_number": old_fault["fault_number"],
-                "building_id": data["building_id"],
+                "fault_number":
+                    old_fault["fault_number"],
+                "building_id":
+                    data["building_id"],
                 "linked_spare_part_movement": {
-                    "spare_part_id": new_spare_id,
-                    "quantity": new_qty if new_spare_id else 0,
+                    "spare_part_id":
+                        new_spare_id,
+                    "quantity":
+                        new_qty
+                        if new_spare_id
+                        else 0,
                 },
             })
-            old_values["linked_spare_part_movement"] = {
-                "spare_part_id": old_part_id,
-                "quantity": old_qty,
+
+            old_values[
+                "linked_spare_part_movement"
+            ] = {
+                "spare_part_id":
+                    old_part_id,
+                "quantity":
+                    old_qty,
             }
+
             write_audit_log(
                 user=self.current_user,
                 action="تعديل",
@@ -3671,6 +4139,10 @@ class FaultsPage(QWidget):
                 new_values=audit_new_values,
             )
 
+            # مهم:
+            # تحديث فلتر المباني بعد تعديل العطل
+            self.load_building_filter()
+
             self.load_faults()
 
             QMessageBox.information(
@@ -3681,6 +4153,7 @@ class FaultsPage(QWidget):
             )
 
         except Exception as exc:
+
             connection.rollback()
             connection.close()
 
@@ -3695,17 +4168,23 @@ class FaultsPage(QWidget):
     # =============================================================
 
     def delete_fault(self):
-        if not self.has_permission("faults.delete"):
+
+        if not self.has_permission(
+            "faults.delete"
+        ):
+
             QMessageBox.warning(
                 self,
                 "غير مسموح",
                 "ليس لديك صلاحية حذف الأعطال."
             )
+
             return
 
         selected = self.table.selectedItems()
 
         if not selected:
+
             QMessageBox.information(
                 self,
                 "تنبيه",
@@ -3728,13 +4207,19 @@ class FaultsPage(QWidget):
 
         cursor.execute(
             "SELECT * FROM faults WHERE id = ?",
-            (fault_id,)
+            (
+                fault_id,
+            )
         )
 
         fault = cursor.fetchone()
-        old_values = fault_audit_data(fault)
+
+        old_values = fault_audit_data(
+            fault
+        )
 
         if not fault:
+
             connection.close()
 
             QMessageBox.warning(
@@ -3758,10 +4243,13 @@ class FaultsPage(QWidget):
         )
 
         if answer != QMessageBox.Yes:
+
             connection.close()
+
             return
 
         try:
+
             cursor.execute(
                 """
                 SELECT TOP 1 id,
@@ -3779,15 +4267,22 @@ class FaultsPage(QWidget):
             )
 
             movement = cursor.fetchone()
-            old_values["linked_spare_part_movement"] = (
+
+            old_values[
+                "linked_spare_part_movement"
+            ] = (
                 {
-                    "spare_part_id": movement["spare_part_id"],
-                    "quantity": movement["quantity"],
+                    "spare_part_id":
+                        movement["spare_part_id"],
+                    "quantity":
+                        movement["quantity"],
                 }
-                if movement else None
+                if movement
+                else None
             )
 
             if movement:
+
                 cursor.execute(
                     """
                     UPDATE spare_parts
@@ -3803,6 +4298,7 @@ class FaultsPage(QWidget):
                 )
 
                 if cursor.rowcount != 1:
+
                     connection.rollback()
                     connection.close()
 
@@ -3816,24 +4312,37 @@ class FaultsPage(QWidget):
                     return
 
                 cursor.execute(
-                    "DELETE FROM spare_part_movements "
-                    "WHERE id = ?",
-                    (movement["id"],)
+                    """
+                    DELETE FROM spare_part_movements
+                    WHERE id = ?
+                    """,
+                    (
+                        movement["id"],
+                    )
                 )
 
-            # حذف سجل المتابعات المرتبط بالعطل
             cursor.execute(
-                "DELETE FROM fault_updates "
-                "WHERE fault_id = ?",
-                (fault_id,)
+                """
+                DELETE FROM fault_updates
+                WHERE fault_id = ?
+                """,
+                (
+                    fault_id,
+                )
             )
 
             cursor.execute(
-                "DELETE FROM faults WHERE id = ?",
-                (fault_id,)
+                """
+                DELETE FROM faults
+                WHERE id = ?
+                """,
+                (
+                    fault_id,
+                )
             )
 
             if cursor.rowcount != 1:
+
                 connection.rollback()
                 connection.close()
 
@@ -3854,14 +4363,25 @@ class FaultsPage(QWidget):
                 module_name="الأعطال",
                 record_id=fault_id,
                 description=(
-                    f"تم حذف العطل رقم {fault['fault_number']}"
+                    f"تم حذف العطل رقم "
+                    f"{fault['fault_number']}"
                 ),
                 old_values=old_values,
                 new_values={
                     "deleted": True,
-                    "stock_returned": bool(old_values.get("linked_spare_part_movement")),
+                    "stock_returned":
+                        bool(
+                            old_values.get(
+                                "linked_spare_part_movement"
+                            )
+                        ),
                 },
             )
+
+            # مهم جدًا:
+            # بعد حذف آخر عطل من مبنى
+            # سيختفي المبنى من الفلتر
+            self.load_building_filter()
 
             self.load_faults()
 
@@ -3873,6 +4393,7 @@ class FaultsPage(QWidget):
             )
 
         except Exception as exc:
+
             connection.rollback()
             connection.close()
 

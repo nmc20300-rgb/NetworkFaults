@@ -236,21 +236,15 @@ def device_audit_data(device):
     result = {}
 
     for key in keys:
-
         try:
-            result[key] = clean(
-                device[key]
-            )
-
+            result[key] = clean(device[key])
         except Exception:
             pass
 
     try:
-
         result["building_name"] = clean(
             device["building_name"]
         )
-
     except Exception:
         pass
 
@@ -710,9 +704,7 @@ class DeviceDialog(QDialog):
                     value = clean(
                         self.device[key]
                     )
-
                 except Exception:
-
                     value = ""
 
             widget.setText(
@@ -865,6 +857,10 @@ class DevicesPage(QWidget):
             can_edit
         )
 
+        self.archive_button.setVisible(
+            can_delete
+        )
+
         self.device_delete_button.setVisible(
             can_delete
         )
@@ -981,14 +977,13 @@ class DevicesPage(QWidget):
         self.archive_button = QPushButton(
             "📦  أرشفة"
         )
+
         self.archive_button.setObjectName(
             "secondary"
         )
+
         self.archive_button.clicked.connect(
             self.archive_device
-        )
-        self.archive_button.setVisible(
-            self.has_permission("devices.delete")
         )
 
         self.device_delete_button = QPushButton(
@@ -1233,39 +1228,76 @@ class DevicesPage(QWidget):
         pagination_row = QHBoxLayout()
 
         self.stats_label = QLabel("")
+
         self.stats_label.setStyleSheet(
             "color: #64748b; font-size: 11px;"
         )
+
         pagination_row.addWidget(
             self.stats_label
         )
+
         pagination_row.addStretch()
 
-        self.previous_button = QPushButton("◀  السابق")
-        self.previous_button.setObjectName("secondary")
-        self.previous_button.setMinimumHeight(32)
+        self.previous_button = QPushButton(
+            "◀  السابق"
+        )
+
+        self.previous_button.setObjectName(
+            "secondary"
+        )
+
+        self.previous_button.setMinimumHeight(
+            32
+        )
+
         self.previous_button.clicked.connect(
             self._previous_page
         )
 
-        self.page_label = QLabel("صفحة 1 / 1")
-        self.page_label.setAlignment(Qt.AlignCenter)
+        self.page_label = QLabel(
+            "صفحة 1 / 1"
+        )
+
+        self.page_label.setAlignment(
+            Qt.AlignCenter
+        )
+
         self.page_label.setStyleSheet(
             "font-weight: 700; min-width: 80px;"
         )
 
-        self.next_button = QPushButton("التالي  ▶")
-        self.next_button.setObjectName("secondary")
-        self.next_button.setMinimumHeight(32)
+        self.next_button = QPushButton(
+            "التالي  ▶"
+        )
+
+        self.next_button.setObjectName(
+            "secondary"
+        )
+
+        self.next_button.setMinimumHeight(
+            32
+        )
+
         self.next_button.clicked.connect(
             self._next_page
         )
 
-        pagination_row.addWidget(self.previous_button)
-        pagination_row.addWidget(self.page_label)
-        pagination_row.addWidget(self.next_button)
+        pagination_row.addWidget(
+            self.previous_button
+        )
 
-        table_layout.addLayout(pagination_row)
+        pagination_row.addWidget(
+            self.page_label
+        )
+
+        pagination_row.addWidget(
+            self.next_button
+        )
+
+        table_layout.addLayout(
+            pagination_row
+        )
 
         root.addWidget(
             table_card,
@@ -1276,26 +1308,45 @@ class DevicesPage(QWidget):
     # Load Devices
     # ========================================================
 
-    def _reset_page_and_load_devices(self, *_args):
+    def _reset_page_and_load_devices(
+        self,
+        *_args,
+    ):
 
         self._page = 0
+
         self.load_devices()
 
-    def _previous_page(self, _checked=False):
+    def _previous_page(
+        self,
+        _checked=False,
+    ):
 
         if self._page > 0:
+
             self._page -= 1
+
             self.load_devices()
 
-    def _next_page(self, _checked=False):
+    def _next_page(
+        self,
+        _checked=False,
+    ):
 
         total_pages = max(
             1,
-            (self._total + self.PAGE_SIZE - 1) // self.PAGE_SIZE,
+            (
+                self._total
+                + self.PAGE_SIZE
+                - 1
+            )
+            // self.PAGE_SIZE,
         )
 
         if self._page < total_pages - 1:
+
             self._page += 1
+
             self.load_devices()
 
     def load_devices(self):
@@ -1321,6 +1372,7 @@ class DevicesPage(QWidget):
         )
 
         con = get_connection()
+
         cur = con.cursor()
 
         try:
@@ -1331,9 +1383,16 @@ class DevicesPage(QWidget):
 
             cur.execute(
                 """
-                SELECT id, name
-                FROM buildings
-                ORDER BY name
+                SELECT DISTINCT
+                    b.id,
+                    b.name
+                FROM buildings b
+                INNER JOIN devices d
+                    ON d.building_id = b.id
+                WHERE d.is_archived = 0
+                  AND b.name IS NOT NULL
+                  AND LTRIM(RTRIM(b.name)) <> ''
+                ORDER BY b.name
                 """
             )
 
@@ -1357,8 +1416,12 @@ class DevicesPage(QWidget):
             for building in buildings:
 
                 self.building_filter.addItem(
-                    building["name"],
-                    str(building["id"]),
+                    clean(
+                        building["name"]
+                    ),
+                    str(
+                        building["id"]
+                    ),
                 )
 
             index = (
@@ -1367,9 +1430,23 @@ class DevicesPage(QWidget):
                 )
             )
 
-            self.building_filter.setCurrentIndex(
-                index if index >= 0 else 0
-            )
+            if index >= 0:
+
+                self.building_filter.setCurrentIndex(
+                    index
+                )
+
+                selected_building = (
+                    current_building
+                )
+
+            else:
+
+                self.building_filter.setCurrentIndex(
+                    0
+                )
+
+                selected_building = ""
 
             self.building_filter.blockSignals(
                 False
@@ -1381,11 +1458,12 @@ class DevicesPage(QWidget):
 
             cur.execute(
                 """
-                SELECT DISTINCT status
+                SELECT DISTINCT
+                    status
                 FROM devices
                 WHERE is_archived = 0
                   AND status IS NOT NULL
-                  AND TRIM(status) <> ''
+                  AND LTRIM(RTRIM(status)) <> ''
                 ORDER BY status
                 """
             )
@@ -1410,8 +1488,12 @@ class DevicesPage(QWidget):
             for status in statuses:
 
                 self.status_filter.addItem(
-                    str(status["status"]),
-                    str(status["status"]),
+                    clean(
+                        status["status"]
+                    ),
+                    clean(
+                        status["status"]
+                    ),
                 )
 
             index = (
@@ -1420,9 +1502,23 @@ class DevicesPage(QWidget):
                 )
             )
 
-            self.status_filter.setCurrentIndex(
-                index if index >= 0 else 0
-            )
+            if index >= 0:
+
+                self.status_filter.setCurrentIndex(
+                    index
+                )
+
+                selected_status = (
+                    current_status
+                )
+
+            else:
+
+                self.status_filter.setCurrentIndex(
+                    0
+                )
+
+                selected_status = ""
 
             self.status_filter.blockSignals(
                 False
@@ -1471,7 +1567,9 @@ class DevicesPage(QWidget):
                 """
 
                 params.append(
-                    int(selected_building)
+                    int(
+                        selected_building
+                    )
                 )
 
             if selected_status:
@@ -1504,17 +1602,31 @@ class DevicesPage(QWidget):
         # ----------------------------------------------------
 
         self._total = len(rows)
+
         total_pages = max(
             1,
-            (self._total + self.PAGE_SIZE - 1) // self.PAGE_SIZE,
+            (
+                self._total
+                + self.PAGE_SIZE
+                - 1
+            )
+            // self.PAGE_SIZE,
         )
+
         self._page = min(
             self._page,
             total_pages - 1,
         )
 
-        start = self._page * self.PAGE_SIZE
-        visible_rows = rows[start:start + self.PAGE_SIZE]
+        start = (
+            self._page
+            * self.PAGE_SIZE
+        )
+
+        visible_rows = rows[
+            start:
+            start + self.PAGE_SIZE
+        ]
 
         # ----------------------------------------------------
         # Fill Table
@@ -1578,12 +1690,15 @@ class DevicesPage(QWidget):
         self.page_label.setText(
             f"صفحة {self._page + 1} / {total_pages}"
         )
+
         self.previous_button.setEnabled(
             self._page > 0
         )
+
         self.next_button.setEnabled(
             self._page < total_pages - 1
         )
+
         self.stats_label.setText(
             f"إجمالي الأجهزة: {self._total}  |  "
             f"المعروض في الصفحة: {len(visible_rows)}"
@@ -1619,6 +1734,7 @@ class DevicesPage(QWidget):
         )
 
         con = get_connection()
+
         cur = con.cursor()
 
         try:
@@ -1667,7 +1783,8 @@ class DevicesPage(QWidget):
 
         cur.execute(
             """
-            SELECT TOP 1 id
+            SELECT TOP 1
+                id
             FROM buildings
             WHERE name = ?
             """,
@@ -1708,7 +1825,11 @@ class DevicesPage(QWidget):
 
         row = cur.fetchone()
 
-        return row["id"] if row else None
+        return (
+            row["id"]
+            if row
+            else None
+        )
 
     # ========================================================
     # Add Device
@@ -1738,6 +1859,7 @@ class DevicesPage(QWidget):
         data = dialog.data()
 
         con = get_connection()
+
         cur = con.cursor()
 
         try:
@@ -1813,7 +1935,6 @@ class DevicesPage(QWidget):
                 ),
             )
 
-            # الحصول على ID للجهاز الجديد
             new_device_id = None
 
             try:
@@ -1852,10 +1973,6 @@ class DevicesPage(QWidget):
         finally:
 
             con.close()
-
-        # ----------------------------------------------------
-        # Audit Log
-        # ----------------------------------------------------
 
         audit_new_values = dict(
             data
@@ -1923,6 +2040,7 @@ class DevicesPage(QWidget):
         data = dialog.data()
 
         con = get_connection()
+
         cur = con.cursor()
 
         try:
@@ -2006,10 +2124,6 @@ class DevicesPage(QWidget):
 
             con.close()
 
-        # ----------------------------------------------------
-        # Audit Log
-        # ----------------------------------------------------
-
         audit_new_values = dict(
             data
         )
@@ -2045,79 +2159,139 @@ class DevicesPage(QWidget):
 
     def archive_device(self):
 
-        if not self.has_permission("devices.delete"):
+        if not self.has_permission(
+            "devices.delete"
+        ):
+
             QMessageBox.warning(
                 self,
                 "غير مسموح",
                 "ليس لديك صلاحية أرشفة الأجهزة.",
             )
+
             return
 
         device = self.get_selected_device()
+
         if not device:
             return
 
         try:
-            already_archived = int(device["is_archived"] or 0) == 1
-        except (KeyError, TypeError, ValueError):
+
+            already_archived = (
+                int(
+                    device["is_archived"] or 0
+                )
+                == 1
+            )
+
+        except (
+            KeyError,
+            TypeError,
+            ValueError,
+        ):
+
             already_archived = False
 
         if already_archived:
+
             QMessageBox.information(
                 self,
                 "الجهاز مؤرشف",
                 "هذا الجهاز موجود بالفعل في الأرشيف.",
             )
+
             return
 
-        device_name = device["device_name"]
-        old_values = device_audit_data(device)
-        old_values["is_archived"] = 0
-        old_values["حالة الأرشفة"] = "غير مؤرشف"
-        new_values = dict(old_values)
-        new_values["is_archived"] = 1
-        new_values["حالة الأرشفة"] = "مؤرشف"
+        device_name = device[
+            "device_name"
+        ]
+
+        old_values = device_audit_data(
+            device
+        )
+
+        old_values[
+            "is_archived"
+        ] = 0
+
+        old_values[
+            "حالة الأرشفة"
+        ] = "غير مؤرشف"
+
+        new_values = dict(
+            old_values
+        )
+
+        new_values[
+            "is_archived"
+        ] = 1
+
+        new_values[
+            "حالة الأرشفة"
+        ] = "مؤرشف"
 
         answer = QMessageBox.question(
             self,
             "تأكيد أرشفة الجهاز",
             f"هل تريد أرشفة الجهاز «{device_name}»؟\n\n"
             "سيظل سجل الجهاز محفوظًا، لكنه سيختفي من قائمة الأجهزة النشطة.",
-            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.Yes
+            | QMessageBox.No,
             QMessageBox.No,
         )
+
         if answer != QMessageBox.Yes:
             return
 
         con = get_connection()
+
         cur = con.cursor()
+
         try:
+
             cur.execute(
                 """
                 UPDATE devices
-                SET is_archived = 1, updated_at = CURRENT_TIMESTAMP
-                WHERE id = ? AND is_archived = 0
+                SET
+                    is_archived = 1,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE id = ?
+                  AND is_archived = 0
                 """,
-                (device["id"],),
+                (
+                    device["id"],
+                ),
             )
+
             if cur.rowcount == 0:
+
                 con.rollback()
+
                 QMessageBox.information(
                     self,
                     "لم يتم التغيير",
                     "لم يتم العثور على جهاز نشط لأرشفته.",
                 )
+
                 return
+
             con.commit()
+
         except Exception as error:
+
             con.rollback()
+
             QMessageBox.critical(
                 self,
                 "خطأ",
                 f"تعذر أرشفة الجهاز:\n\n{error}",
             )
+
             return
+
         finally:
+
             con.close()
 
         write_audit_log(
@@ -2125,12 +2299,16 @@ class DevicesPage(QWidget):
             action="أرشفة",
             module_name="الأجهزة",
             record_id=device["id"],
-            description=f"تمت أرشفة الجهاز: {device_name}",
+            description=(
+                f"تمت أرشفة الجهاز: "
+                f"{device_name}"
+            ),
             old_values=old_values,
             new_values=new_values,
         )
 
         self.load_devices()
+
         QMessageBox.information(
             self,
             "تم",
@@ -2170,6 +2348,7 @@ class DevicesPage(QWidget):
             return
 
         con = get_connection()
+
         cur = con.cursor()
 
         try:
@@ -2188,8 +2367,6 @@ class DevicesPage(QWidget):
             )
 
             if fault_count > 0:
-
-                con.close()
 
                 QMessageBox.warning(
                     self,
@@ -2238,10 +2415,6 @@ class DevicesPage(QWidget):
 
             con.close()
 
-        # ----------------------------------------------------
-        # Audit Log
-        # ----------------------------------------------------
-
         write_audit_log(
             user=self.current_user,
             action="حذف",
@@ -2274,34 +2447,48 @@ class DevicesPage(QWidget):
         if not self.has_permission(
             "devices.delete"
         ):
+
             QMessageBox.warning(
                 self,
                 "غير مسموح",
                 "ليس لديك صلاحية حذف الأجهزة.",
             )
+
             return
 
         device = self.get_selected_device()
+
         if not device:
             return
 
-        old_values = device_audit_data(device)
+        old_values = device_audit_data(
+            device
+        )
+
         con = get_connection()
+
         cur = con.cursor()
 
         try:
-            # الاحتفاظ بسجل الأعطال: لا نحذف الجهاز إذا كان مرتبطًا بأعطال.
+
+            # الاحتفاظ بسجل الأعطال
             cur.execute(
                 """
                 SELECT COUNT(*) AS total
                 FROM faults
                 WHERE device_id = ?
                 """,
-                (device["id"],),
+                (
+                    device["id"],
+                ),
             )
-            fault_count = int(cur.fetchone()["total"] or 0)
+
+            fault_count = int(
+                cur.fetchone()["total"] or 0
+            )
 
             if fault_count:
+
                 QMessageBox.warning(
                     self,
                     "لا يمكن حذف الجهاز",
@@ -2309,6 +2496,7 @@ class DevicesPage(QWidget):
                     "لم يتم حذفه حفاظًا على سجل الأعطال. "
                     "احذف أو عالج سجلات الأعطال المرتبطة أولًا.",
                 )
+
                 return
 
             answer = QMessageBox.question(
@@ -2317,28 +2505,37 @@ class DevicesPage(QWidget):
                 f"هل تريد حذف الجهاز نهائيًا؟\n\n"
                 f"{device['device_name']}\n\n"
                 "لا يمكن التراجع عن هذا الحذف.",
-                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+                | QMessageBox.No,
                 QMessageBox.No,
             )
+
             if answer != QMessageBox.Yes:
                 return
 
             cur.execute(
                 "DELETE FROM devices WHERE id = ?",
-                (device["id"],),
+                (
+                    device["id"],
+                ),
             )
+
             con.commit()
 
         except Exception as error:
+
             con.rollback()
+
             QMessageBox.critical(
                 self,
                 "خطأ",
                 f"حدث خطأ أثناء حذف الجهاز:\n\n{error}",
             )
+
             return
 
         finally:
+
             con.close()
 
         write_audit_log(
@@ -2346,11 +2543,15 @@ class DevicesPage(QWidget):
             action="حذف",
             module_name="الأجهزة",
             record_id=device["id"],
-            description=f"تم حذف الجهاز نهائيًا: {device['device_name']}",
+            description=(
+                f"تم حذف الجهاز نهائيًا: "
+                f"{device['device_name']}"
+            ),
             old_values=old_values,
         )
 
         self.load_devices()
+
         QMessageBox.information(
             self,
             "تم",
@@ -2377,9 +2578,7 @@ class DevicesPage(QWidget):
 
         try:
 
-            from openpyxl import (
-                load_workbook
-            )
+            from openpyxl import load_workbook
 
         except ImportError:
 
@@ -2414,6 +2613,10 @@ class DevicesPage(QWidget):
 
         try:
 
+            # ==================================================
+            # 1) قراءة Excel
+            # ==================================================
+
             wb = load_workbook(
                 file_path,
                 read_only=True,
@@ -2434,6 +2637,7 @@ class DevicesPage(QWidget):
             if not header:
 
                 wb.close()
+
                 wb = None
 
                 QMessageBox.warning(
@@ -2448,9 +2652,9 @@ class DevicesPage(QWidget):
                 header
             )
 
-            # ------------------------------------------------
+            # ==================================================
             # Required Columns
-            # ------------------------------------------------
+            # ==================================================
 
             if (
                 "اسم الجهاز" not in indexes
@@ -2458,6 +2662,7 @@ class DevicesPage(QWidget):
             ):
 
                 wb.close()
+
                 wb = None
 
                 QMessageBox.warning(
@@ -2491,9 +2696,9 @@ class DevicesPage(QWidget):
 
             imported_rows = []
 
-            # ------------------------------------------------
-            # Read Excel
-            # ------------------------------------------------
+            # ==================================================
+            # 2) قراءة الصفوف
+            # ==================================================
 
             for row in iterator:
 
@@ -2520,79 +2725,99 @@ class DevicesPage(QWidget):
                             row,
                             "م",
                         ),
+
                         "building": cell(
                             row,
                             "المبنى",
                         ),
+
                         "location": cell(
                             row,
                             "مكان التواجد",
                         ),
+
                         "device_name": device_name,
+
                         "user_name": cell(
                             row,
                             "اسم المستخدم",
                         ),
+
                         "user_name_en": cell(
                             row,
                             "User name",
                         ),
+
                         "lock_number": cell(
                             row,
                             "رقم القفل",
                         ),
+
                         "network_connection": cell(
                             row,
                             "التوصيل بالشبكة",
                         ),
+
                         "motherboard": cell(
                             row,
                             "Mother Board",
                         ),
+
                         "graphics_card": cell(
                             row,
                             "كارت الشاشة الخارجى",
                         ),
+
                         "hard_disk": cell(
                             row,
                             "الهارد ديسك",
                         ),
+
                         "hard_disk_serial": cell(
                             row,
                             "الرقم التسلسلى للهارد",
                         ),
+
                         "processor": cell(
                             row,
                             "المعالج المركزى",
                         ),
+
                         "ram": cell(
                             row,
                             "-",
                         ),
+
                         "monitor": cell(
                             row,
                             "طراز الشاشة",
                         ),
+
                         "operating_system": cell(
                             row,
                             "نظام التشغيل",
                         ),
+
                         "ms_office": cell(
                             row,
                             "MS Office",
                         ),
+
                         "printer": cell(
                             row,
                             "طراز الطابعة",
                         ),
+
                         "scanner": cell(
                             row,
                             "الماسح الضوئى",
                         ),
+
                         "ip_address": cell(
                             row,
                             "IP",
                         ),
+
                         "status": (
                             cell(
                                 row,
@@ -2604,6 +2829,7 @@ class DevicesPage(QWidget):
                 )
 
             wb.close()
+
             wb = None
 
             if not imported_rows:
@@ -2616,9 +2842,52 @@ class DevicesPage(QWidget):
 
                 return
 
-            # ------------------------------------------------
-            # Preview
-            # ------------------------------------------------
+            # ==================================================
+            # 3) اكتشاف الأسماء المكررة داخل Excel
+            # ==================================================
+
+            duplicate_names = {}
+
+            for data in imported_rows:
+
+                name_key = norm(
+                    data["device_name"]
+                )
+
+                if not name_key:
+                    continue
+
+                duplicate_names.setdefault(
+                    name_key,
+                    0,
+                )
+
+                duplicate_names[
+                    name_key
+                ] += 1
+
+            duplicate_names = {
+                name: count
+                for name, count
+                in duplicate_names.items()
+                if count > 1
+            }
+
+            duplicate_note = ""
+
+            if duplicate_names:
+
+                duplicate_note = (
+                    "\n\n⚠ تم اكتشاف "
+                    f"{len(duplicate_names)} "
+                    "اسم جهاز مكرر داخل Excel."
+                    "\nلن يتم اعتبار اسم الجهاز وحده "
+                    "مفتاحًا للمطابقة."
+                )
+
+            # ==================================================
+            # 4) Preview
+            # ==================================================
 
             preview = "\n".join(
                 f"{index + 1}. "
@@ -2648,11 +2917,17 @@ class DevicesPage(QWidget):
                 f"تم العثور على "
                 f"{len(imported_rows)} جهاز.\n\n"
                 f"{preview}"
-                f"{more}\n\n"
-                "سيتم نقل كل الأعمدة الـ21 كما هي "
-                "إلى النظام.\n"
-                "المباني غير الموجودة سيتم إنشاؤها تلقائياً.\n"
-                "إذا كان رقم الجهاز موجوداً سيتم تحديث نفس الجهاز.\n\n"
+                f"{more}"
+                f"{duplicate_note}"
+                "\n\n"
+                "سيتم نقل كل الأعمدة الـ21 إلى النظام.\n"
+                "المباني غير الموجودة سيتم إنشاؤها تلقائياً.\n\n"
+                "طريقة مطابقة الجهاز:\n"
+                "1) رقم الجهاز\n"
+                "2) Serial الهارد\n"
+                "3) اسم الجهاز + رقم القفل\n"
+                "4) اسم الجهاز + User name\n"
+                "5) إذا لم توجد مطابقة سيتم إنشاء جهاز جديد.\n\n"
                 "هل تريد بدء الاستيراد؟",
                 QMessageBox.Yes
                 | QMessageBox.No,
@@ -2662,9 +2937,9 @@ class DevicesPage(QWidget):
             if answer != QMessageBox.Yes:
                 return
 
-            # ------------------------------------------------
-            # Progress
-            # ------------------------------------------------
+            # ==================================================
+            # 5) Progress
+            # ==================================================
 
             progress = QProgressDialog(
                 "جاري استيراد جميع بيانات الأجهزة...",
@@ -2689,15 +2964,34 @@ class DevicesPage(QWidget):
             progress.show()
 
             con = get_connection()
+
             cur = con.cursor()
 
             new_count = 0
             update_count = 0
             cancel = False
 
-            # ------------------------------------------------
-            # Import Loop
-            # ------------------------------------------------
+            # ==================================================
+            # مهم جدًا:
+            #
+            # يمنع استخدام نفس سجل SQL Server مرتين
+            # أثناء نفس عملية الاستيراد.
+            #
+            # هذا هو الجزء الذي يحل مشكلة الأسماء المكررة.
+            # ==================================================
+
+            matched_device_ids = set()
+
+            # لتسجيل كيفية مطابقة كل جهاز
+            match_by_number = 0
+            match_by_serial = 0
+            match_by_name_lock = 0
+            match_by_name_username = 0
+            inserted_new = 0
+
+            # ==================================================
+            # 6) Import Loop
+            # ==================================================
 
             for number, data in enumerate(
                 imported_rows,
@@ -2714,6 +3008,10 @@ class DevicesPage(QWidget):
 
                     break
 
+                # ------------------------------------------------
+                # Building
+                # ------------------------------------------------
+
                 building_id = (
                     self.get_building_id(
                         data["building"],
@@ -2722,50 +3020,234 @@ class DevicesPage(QWidget):
                 )
 
                 existing = None
+                match_method = ""
 
-                # --------------------------------------------
-                # Match by Device Number
-                # --------------------------------------------
+                # ==================================================
+                # MATCH #1
+                # Device Number
+                #
+                # لا نستخدم السجل إذا كان قد تم استخدامه
+                # بالفعل في صف Excel آخر.
+                # ==================================================
 
-                if data["device_number"]:
+                device_number = norm(
+                    data["device_number"]
+                )
+
+                if device_number:
 
                     cur.execute(
                         """
-                        SELECT TOP 1 id
+                        SELECT TOP 1
+                            id
                         FROM devices
-                        WHERE device_number=?
-                          AND is_archived=0
+                        WHERE LTRIM(RTRIM(device_number)) = ?
+                          AND is_archived = 0
+                        ORDER BY id ASC
                         """,
                         (
-                            data[
-                                "device_number"
-                            ],
+                            device_number,
                         ),
                     )
 
-                    existing = cur.fetchone()
+                    candidates = cur.fetchall()
 
-                # --------------------------------------------
-                # Match by Device Name
-                # --------------------------------------------
+                    for candidate in candidates:
+
+                        candidate_id = int(
+                            candidate["id"]
+                        )
+
+                        if (
+                            candidate_id
+                            not in matched_device_ids
+                        ):
+
+                            existing = candidate
+
+                            match_method = (
+                                "device_number"
+                            )
+
+                            break
+
+                # ==================================================
+                # MATCH #2
+                # Hard Disk Serial
+                # ==================================================
 
                 if not existing:
 
-                    cur.execute(
-                        """
-                        SELECT TOP 1 id
-                        FROM devices
-                        WHERE device_name=?
-                          AND is_archived=0
-                        """,
-                        (
-                            data[
-                                "device_name"
-                            ],
-                        ),
+                    hard_disk_serial = norm(
+                        data[
+                            "hard_disk_serial"
+                        ]
                     )
 
-                    existing = cur.fetchone()
+                    if hard_disk_serial:
+
+                        cur.execute(
+                            """
+                            SELECT TOP 1
+                                id
+                            FROM devices
+                            WHERE LTRIM(RTRIM(hard_disk_serial)) = ?
+                              AND is_archived = 0
+                            ORDER BY id ASC
+                            """,
+                            (
+                                hard_disk_serial,
+                            ),
+                        )
+
+                        candidates = cur.fetchall()
+
+                        for candidate in candidates:
+
+                            candidate_id = int(
+                                candidate["id"]
+                            )
+
+                            if (
+                                candidate_id
+                                not in matched_device_ids
+                            ):
+
+                                existing = candidate
+
+                                match_method = (
+                                    "hard_disk_serial"
+                                )
+
+                                break
+
+                # ==================================================
+                # MATCH #3
+                # Device Name + Lock Number
+                #
+                # مهم للأجهزة التي لها نفس اسم الجهاز.
+                # ==================================================
+
+                if not existing:
+
+                    device_name = norm(
+                        data[
+                            "device_name"
+                        ]
+                    )
+
+                    lock_number = norm(
+                        data[
+                            "lock_number"
+                        ]
+                    )
+
+                    if (
+                        device_name
+                        and lock_number
+                    ):
+
+                        cur.execute(
+                            """
+                            SELECT TOP 1
+                                id
+                            FROM devices
+                            WHERE LTRIM(RTRIM(device_name)) = ?
+                              AND LTRIM(RTRIM(lock_number)) = ?
+                              AND is_archived = 0
+                            ORDER BY id ASC
+                            """,
+                            (
+                                device_name,
+                                lock_number,
+                            ),
+                        )
+
+                        candidates = cur.fetchall()
+
+                        for candidate in candidates:
+
+                            candidate_id = int(
+                                candidate["id"]
+                            )
+
+                            if (
+                                candidate_id
+                                not in matched_device_ids
+                            ):
+
+                                existing = candidate
+
+                                match_method = (
+                                    "name_lock"
+                                )
+
+                                break
+
+                # ==================================================
+                # MATCH #4
+                # Device Name + User Name EN
+                # ==================================================
+
+                if not existing:
+
+                    device_name = norm(
+                        data[
+                            "device_name"
+                        ]
+                    )
+
+                    user_name_en = norm(
+                        data[
+                            "user_name_en"
+                        ]
+                    )
+
+                    if (
+                        device_name
+                        and user_name_en
+                    ):
+
+                        cur.execute(
+                            """
+                            SELECT TOP 1
+                                id
+                            FROM devices
+                            WHERE LTRIM(RTRIM(device_name)) = ?
+                              AND LTRIM(RTRIM(user_name_en)) = ?
+                              AND is_archived = 0
+                            ORDER BY id ASC
+                            """,
+                            (
+                                device_name,
+                                user_name_en,
+                            ),
+                        )
+
+                        candidates = cur.fetchall()
+
+                        for candidate in candidates:
+
+                            candidate_id = int(
+                                candidate["id"]
+                            )
+
+                            if (
+                                candidate_id
+                                not in matched_device_ids
+                            ):
+
+                                existing = candidate
+
+                                match_method = (
+                                    "name_username"
+                                )
+
+                                break
+
+                # ==================================================
+                # Values
+                # ==================================================
 
                 values = (
                     data["device_number"],
@@ -2795,11 +3277,15 @@ class DevicesPage(QWidget):
                     data["ip_address"],
                 )
 
-                # --------------------------------------------
-                # Update Existing
-                # --------------------------------------------
+                # ==================================================
+                # UPDATE EXISTING
+                # ==================================================
 
                 if existing:
+
+                    existing_id = int(
+                        existing["id"]
+                    )
 
                     cur.execute(
                         """
@@ -2835,15 +3321,43 @@ class DevicesPage(QWidget):
                         """,
                         values
                         + (
-                            existing["id"],
+                            existing_id,
                         ),
+                    )
+
+                    matched_device_ids.add(
+                        existing_id
                     )
 
                     update_count += 1
 
-                # --------------------------------------------
-                # Insert New
-                # --------------------------------------------
+                    if (
+                        match_method
+                        == "device_number"
+                    ):
+                        match_by_number += 1
+
+                    elif (
+                        match_method
+                        == "hard_disk_serial"
+                    ):
+                        match_by_serial += 1
+
+                    elif (
+                        match_method
+                        == "name_lock"
+                    ):
+                        match_by_name_lock += 1
+
+                    elif (
+                        match_method
+                        == "name_username"
+                    ):
+                        match_by_name_username += 1
+
+                # ==================================================
+                # INSERT NEW
+                # ==================================================
 
                 else:
 
@@ -2885,25 +3399,62 @@ class DevicesPage(QWidget):
                         values,
                     )
 
-                    new_count += 1
+                    # الحصول على ID الجديد
+                    new_id = None
 
-            # ------------------------------------------------
-            # Save
-            # ------------------------------------------------
+                    try:
+
+                        cur.execute(
+                            """
+                            SELECT CAST(
+                                SCOPE_IDENTITY()
+                                AS INT
+                            ) AS id
+                            """
+                        )
+
+                        identity_row = (
+                            cur.fetchone()
+                        )
+
+                        if identity_row:
+
+                            new_id = (
+                                identity_row["id"]
+                            )
+
+                    except Exception:
+
+                        new_id = None
+
+                    if new_id is not None:
+
+                        matched_device_ids.add(
+                            int(new_id)
+                        )
+
+                    new_count += 1
+                    inserted_new += 1
+
+            # ==================================================
+            # 7) Save
+            # ==================================================
 
             con.commit()
 
             con.close()
+
             con = None
 
             progress.close()
+
             progress = None
 
             self.load_devices()
 
-            # ------------------------------------------------
-            # Audit Log - Import
-            # ------------------------------------------------
+            # ==================================================
+            # 8) Audit Log
+            # ==================================================
 
             write_audit_log(
                 user=self.current_user,
@@ -2918,6 +3469,14 @@ class DevicesPage(QWidget):
                     f"{new_count}"
                     f"\nأجهزة محدثة: "
                     f"{update_count}"
+                    f"\nمطابقة برقم الجهاز: "
+                    f"{match_by_number}"
+                    f"\nمطابقة بـ Serial الهارد: "
+                    f"{match_by_serial}"
+                    f"\nمطابقة باسم الجهاز + القفل: "
+                    f"{match_by_name_lock}"
+                    f"\nمطابقة باسم الجهاز + User name: "
+                    f"{match_by_name_username}"
                     f"\nتم الإلغاء: "
                     f"{'نعم' if cancel else 'لا'}"
                 ),
@@ -2928,13 +3487,21 @@ class DevicesPage(QWidget):
                     ),
                     "new_devices": new_count,
                     "updated_devices": update_count,
+                    "match_by_device_number":
+                        match_by_number,
+                    "match_by_hard_disk_serial":
+                        match_by_serial,
+                    "match_by_name_lock":
+                        match_by_name_lock,
+                    "match_by_name_username":
+                        match_by_name_username,
                     "cancelled": cancel,
                 },
             )
 
-            # ------------------------------------------------
-            # Result
-            # ------------------------------------------------
+            # ==================================================
+            # 9) Result
+            # ==================================================
 
             if cancel:
 
@@ -2943,7 +3510,9 @@ class DevicesPage(QWidget):
                     "تم إيقاف الاستيراد",
                     "تم حفظ ما تم استيراده حتى لحظة الإلغاء.\n\n"
                     f"أجهزة جديدة: {new_count}\n"
-                    f"أجهزة محدثة: {update_count}",
+                    f"أجهزة محدثة: {update_count}\n\n"
+                    f"إجمالي الصفوف المعالجة: "
+                    f"{new_count + update_count}",
                 )
 
             else:
@@ -2951,11 +3520,14 @@ class DevicesPage(QWidget):
                 QMessageBox.information(
                     self,
                     "تم الاستيراد بالكامل",
-                    "تم استيراد الملف بالكامل بدون حذف أعمدة.\n\n"
-                    f"عدد الأجهزة الجديدة: {new_count}\n"
-                    f"عدد الأجهزة المحدثة: {update_count}\n\n"
-                    "تم حفظ كل بيانات Excel الـ21 "
-                    "في قاعدة البيانات.",
+                    "تم استيراد الملف بالكامل.\n\n"
+                    f"إجمالي صفوف Excel: "
+                    f"{len(imported_rows)}\n\n"
+                    f"أجهزة جديدة: {new_count}\n"
+                    f"أجهزة محدثة: {update_count}\n\n"
+                    "تم التعامل مع أسماء الأجهزة المكررة "
+                    "بدون استبدال سجل بجهاز آخر.\n\n"
+                    "افتح صفحة الأجهزة وتأكد أن العدد أصبح مطابقًا للملف.",
                 )
 
         except Exception as error:

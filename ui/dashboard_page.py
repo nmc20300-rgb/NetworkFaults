@@ -3,65 +3,111 @@ from datetime import datetime
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QLabel, QPushButton, QFrame, QProgressBar,
-    QTableWidget, QTableWidgetItem, QHeaderView,
-    QSizePolicy, QStyle
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGridLayout,
+    QLabel,
+    QPushButton,
+    QFrame,
+    QProgressBar,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QSizePolicy,
+    QStyle,
 )
 
 from database import get_connection
+
+# =============================================================
+# بطاقة إحصائية
+# =============================================================
 
 
 class StatCard(QFrame):
     def __init__(self, title, value="0", icon_type=QStyle.SP_ComputerIcon):
         super().__init__()
+
         self.setObjectName("statCard")
         self.setMinimumHeight(135)
+
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         layout = QVBoxLayout(self)
+
         layout.setContentsMargins(18, 16, 18, 16)
+
         layout.setSpacing(8)
+
+        # -----------------------------------------------------
+        # Header
+        # -----------------------------------------------------
 
         top = QHBoxLayout()
         top.setSpacing(10)
 
         icon = QLabel()
         icon.setObjectName("cardIcon")
+
         pixmap = self.style().standardIcon(icon_type).pixmap(30, 30)
+
         icon.setPixmap(pixmap)
         icon.setAlignment(Qt.AlignCenter)
         icon.setFixedSize(44, 44)
+
         top.addWidget(icon)
 
         title_label = QLabel(title)
         title_label.setObjectName("cardTitle")
+
         title_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
         top.addWidget(title_label, 1)
 
         layout.addLayout(top)
 
+        # -----------------------------------------------------
+        # Value
+        # -----------------------------------------------------
+
         self.value_label = QLabel(str(value))
         self.value_label.setObjectName("cardValue")
+
         self.value_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
         layout.addWidget(self.value_label)
+
+        # -----------------------------------------------------
+        # Bottom line
+        # -----------------------------------------------------
 
         line = QFrame()
         line.setObjectName("cardLine")
         line.setFixedHeight(3)
+
         layout.addWidget(line)
 
     def set_value(self, value):
+
         self.value_label.setText(str(value))
+
+
+# =============================================================
+# لوحة صغيرة
+# =============================================================
 
 
 class MiniPanel(QFrame):
     def __init__(self, title, icon_type=QStyle.SP_FileDialogInfoView):
         super().__init__()
+
         self.setObjectName("dashboardPanel")
 
         self.layout = QVBoxLayout(self)
+
         self.layout.setContentsMargins(18, 16, 18, 18)
+
         self.layout.setSpacing(12)
 
         header = QHBoxLayout()
@@ -69,41 +115,245 @@ class MiniPanel(QFrame):
 
         icon = QLabel()
         icon.setObjectName("panelIcon")
-        icon.setPixmap(
-            self.style().standardIcon(icon_type).pixmap(20, 20)
-        )
+
+        icon.setPixmap(self.style().standardIcon(icon_type).pixmap(20, 20))
+
         header.addWidget(icon)
 
         title_label = QLabel(title)
         title_label.setObjectName("panelTitle")
+
         header.addWidget(title_label, 1)
 
         self.layout.addLayout(header)
 
 
+# =============================================================
+# Dashboard
+# =============================================================
+
+
 class DashboardPage(QWidget):
-    def __init__(self):
+    def __init__(self, current_user=None):
         super().__init__()
 
         self.setObjectName("dashboardPage")
 
+        # -----------------------------------------------------
+        # المستخدم الحالي
+        # -----------------------------------------------------
+
+        self.current_user = current_user or {}
+
+        # -----------------------------------------------------
+        # بناء الواجهة
+        # -----------------------------------------------------
+
         self.setup_ui()
+
         self.refresh()
 
-        # تحديث تلقائي للرئيسية
+        # -----------------------------------------------------
+        # تحديث البيانات كل 5 ثواني
+        # -----------------------------------------------------
+
         self.refresh_timer = QTimer(self)
+
         self.refresh_timer.timeout.connect(self.refresh)
+
         self.refresh_timer.start(5000)
+
+        # -----------------------------------------------------
+        # تحديث التحية كل دقيقة
+        # SUPER_ADMIN فقط
+        # -----------------------------------------------------
+
+        self.greeting_timer = QTimer(self)
+
+        self.greeting_timer.timeout.connect(self.update_greeting)
+
+        role_code = str(self.current_user.get("role_code", "") or "").strip().upper()
+
+        if role_code == "SUPER_ADMIN":
+            self.greeting_timer.start(60000)
+        else:
+            self.greeting_timer.stop()
+
+    # =========================================================
+    # التحقق من SUPER_ADMIN
+    # =========================================================
+
+    def is_super_admin(self):
+
+        role_code = str(self.current_user.get("role_code", "") or "").strip().upper()
+
+        return role_code == "SUPER_ADMIN"
+
+    # =========================================================
+    # التحية
+    # =========================================================
+
+    def update_greeting(self):
+
+        # -----------------------------------------------------
+        # لا توجد تحية لغير SUPER_ADMIN
+        # -----------------------------------------------------
+
+        if not self.is_super_admin():
+            self.greeting_card.hide()
+
+            return
+
+        username = str(self.current_user.get("username", "") or "").strip()
+
+        full_name = str(self.current_user.get("full_name", "") or "").strip()
+
+        display_name_from_user = str(
+            self.current_user.get("display_name", "") or ""
+        ).strip()
+
+        name_from_user = str(self.current_user.get("name", "") or "").strip()
+
+        role_code = str(self.current_user.get("role_code", "") or "").strip().upper()
+
+        # -----------------------------------------------------
+        # المستخدمون المعروفون
+        # -----------------------------------------------------
+
+        user_profiles = {
+            "قائد شبكه الربط المحلية": {
+                "title": "عميد",
+                "name": "أحمد صلاح",
+            },
+            "قائد شبكة الربط المحلية": {
+                "title": "عميد",
+                "name": "أحمد صلاح",
+            },
+            "superadmin": {
+                "title": "عميد",
+                "name": "أحمد صلاح",
+            },
+            "ali": {
+                "title": "مهندس",
+                "name": "علي",
+            },
+            "m_adel": {
+                "title": "مهندس",
+                "name": "محمد عادل",
+            },
+            "m_samir": {
+                "title": "بشمهندس",
+                "name": "محمد سمير",
+            },
+            "a_galal": {
+                "title": "بشمهندس",
+                "name": "جلال",
+            },
+            "m_rashad": {
+                "title": "مهندس",
+                "name": "رشاد",
+            },
+        }
+
+        # -----------------------------------------------------
+        # Profile
+        # -----------------------------------------------------
+
+        profile = user_profiles.get(username)
+
+        if profile:
+            title = profile["title"]
+
+            display_name = profile["name"]
+
+        else:
+            display_name = (
+                display_name_from_user
+                or full_name
+                or name_from_user
+                or username
+                or "مستخدم النظام"
+            )
+
+            if role_code == "SUPER_ADMIN":
+                title = "عميد"
+
+            else:
+                title = ""
+
+        # -----------------------------------------------------
+        # الدور الظاهر
+        # -----------------------------------------------------
+
+        visible_role = "قائد شبكة الربط المحلية"
+
+        # -----------------------------------------------------
+        # الوقت
+        # -----------------------------------------------------
+
+        hour = datetime.now().hour
+
+        if 5 <= hour < 12:
+            greeting = "صباح الخير"
+
+            icon = "☀️"
+
+            message = "نتمنى لك صباحًا موفقًا ومليئًا بالإنجاز."
+
+        elif 12 <= hour < 17:
+            greeting = "مساء الخير"
+
+            icon = "🌤️"
+
+            message = "نتمنى لك يومًا سعيدًا ومثمرًا."
+
+        elif 17 <= hour < 24:
+            greeting = "مساء الخير"
+
+            icon = "🌙"
+
+            message = "نتمنى لك مساءً هادئًا ومميزًا."
+
+        else:
+            greeting = "مساء الخير"
+
+            icon = "🌙"
+
+            message = "نتمنى لك ليلة هادئة."
+
+        # -----------------------------------------------------
+        # النص
+        # -----------------------------------------------------
+
+        if title:
+            main_text = f"{greeting}، {title} {display_name} {icon}"
+
+        else:
+            main_text = f"{greeting}، {display_name} {icon}"
+
+        self.greeting_label.setText(main_text)
+
+        self.greeting_hint.setText(message)
+
+        self.greeting_role.setText(visible_role)
+
+        self.greeting_card.show()
+
+    # =========================================================
+    # بناء الواجهة
+    # =========================================================
 
     def setup_ui(self):
 
         root = QVBoxLayout(self)
+
         root.setContentsMargins(26, 22, 26, 22)
+
         root.setSpacing(16)
 
-        # =========================================================
-        # رأس الصفحة
-        # =========================================================
+        # =====================================================
+        # Header
+        # =====================================================
 
         header = QHBoxLayout()
 
@@ -112,35 +362,88 @@ class DashboardPage(QWidget):
 
         title = QLabel("الرئيسية")
         title.setObjectName("dashboardTitle")
+
         title_box.addWidget(title)
 
         credits = QLabel(
-            "قائد شبكة الربط: عميد أحمد صلاح  |  المطور: Ahmed Abozead"
+            "قائد شبكة الربط: عميد أحمد صلاح  |  المطور: Ahmed Abozead, Hamdy Haggag"
         )
-        credits.setOpenExternalLinks(True)
+
         credits.setObjectName("dashboardCredits")
+
         title_box.addWidget(credits)
 
         header.addLayout(title_box)
         header.addStretch()
 
         self.refresh_btn = QPushButton("  تحديث البيانات")
+
         self.refresh_btn.setObjectName("dashboardRefresh")
 
-        self.refresh_btn.setIcon(
-            self.style().standardIcon(QStyle.SP_BrowserReload)
-        )
+        self.refresh_btn.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
 
         self.refresh_btn.setIconSize(QPixmap(18, 18).size())
+
         self.refresh_btn.clicked.connect(self.refresh)
 
         header.addWidget(self.refresh_btn)
 
         root.addLayout(header)
 
-        # =========================================================
-        # بطاقات الإحصائيات
-        # =========================================================
+        # =====================================================
+        # Greeting Card
+        # =====================================================
+
+        self.greeting_card = QFrame()
+
+        self.greeting_card.setObjectName("greetingCard")
+
+        greeting_layout = QVBoxLayout(self.greeting_card)
+
+        greeting_layout.setContentsMargins(24, 17, 24, 17)
+
+        greeting_layout.setSpacing(5)
+
+        greeting_top = QHBoxLayout()
+        greeting_top.setSpacing(12)
+
+        self.greeting_label = QLabel("")
+        self.greeting_label.setObjectName("greetingLabel")
+
+        self.greeting_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        greeting_top.addWidget(self.greeting_label, 1)
+
+        self.greeting_role = QLabel("قائد شبكة الربط المحلية")
+
+        self.greeting_role.setObjectName("greetingRole")
+
+        self.greeting_role.setAlignment(Qt.AlignCenter)
+
+        self.greeting_role.setMinimumWidth(145)
+
+        greeting_top.addWidget(self.greeting_role)
+
+        greeting_layout.addLayout(greeting_top)
+
+        self.greeting_hint = QLabel("")
+        self.greeting_hint.setObjectName("greetingHint")
+
+        self.greeting_hint.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        greeting_layout.addWidget(self.greeting_hint)
+
+        root.addWidget(self.greeting_card)
+
+        # -----------------------------------------------------
+        # إظهار Greeting للـ SUPER_ADMIN فقط
+        # -----------------------------------------------------
+
+        self.greeting_card.setVisible(self.is_super_admin())
+
+        # =====================================================
+        # Cards
+        # =====================================================
 
         self.cards = {}
 
@@ -152,20 +455,11 @@ class DashboardPage(QWidget):
             ("faults", "إجمالي الأعطال", QStyle.SP_MessageBoxWarning),
             ("open", "أعطال مفتوحة", QStyle.SP_MessageBoxCritical),
             ("buildings", "المباني / الفروع", QStyle.SP_DirHomeIcon),
-            (
-                "spare_parts",
-                "قطع غيار ناقصة",
-                QStyle.SP_FileDialogDetailedView
-            ),
+            ("spare_parts", "قطع غيار ناقصة", QStyle.SP_FileDialogDetailedView),
         ]
 
-        for col, (key, title, icon_type) in enumerate(definitions):
-
-            card = StatCard(
-                title,
-                "0",
-                icon_type
-            )
+        for col, (key, title_text, icon_type) in enumerate(definitions):
+            card = StatCard(title_text, "0", icon_type)
 
             self.cards[key] = card
 
@@ -173,159 +467,133 @@ class DashboardPage(QWidget):
 
         root.addLayout(cards_layout)
 
-        # =========================================================
-        # اللوحات الوسطى
-        # =========================================================
+        # =====================================================
+        # Middle
+        # =====================================================
 
         middle = QGridLayout()
         middle.setSpacing(14)
 
-        # حالة الأجهزة
-        status_panel = MiniPanel(
-            "حالة الأجهزة",
-            QStyle.SP_ComputerIcon
-        )
+        # -----------------------------------------------------
+        # Device Status
+        # -----------------------------------------------------
+
+        status_panel = MiniPanel("حالة الأجهزة", QStyle.SP_ComputerIcon)
 
         self.device_status_layout = QVBoxLayout()
+
         self.device_status_layout.setSpacing(8)
 
-        status_panel.layout.addLayout(
-            self.device_status_layout
-        )
+        status_panel.layout.addLayout(self.device_status_layout)
 
         middle.addWidget(status_panel, 0, 0)
 
-        # حالة الأعطال
-        fault_panel = MiniPanel(
-            "حالة الأعطال",
-            QStyle.SP_MessageBoxWarning
-        )
+        # -----------------------------------------------------
+        # Fault Status
+        # -----------------------------------------------------
+
+        fault_panel = MiniPanel("حالة الأعطال", QStyle.SP_MessageBoxWarning)
 
         self.fault_status_layout = QVBoxLayout()
+
         self.fault_status_layout.setSpacing(7)
 
-        fault_panel.layout.addLayout(
-            self.fault_status_layout
-        )
+        fault_panel.layout.addLayout(self.fault_status_layout)
 
         middle.addWidget(fault_panel, 0, 1)
 
-        # مؤشر التشغيل
-        health_panel = MiniPanel(
-            "مؤشر التشغيل",
-            QStyle.SP_DialogApplyButton
-        )
+        # -----------------------------------------------------
+        # Health
+        # -----------------------------------------------------
+
+        health_panel = MiniPanel("مؤشر التشغيل", QStyle.SP_DialogApplyButton)
 
         self.health_value = QLabel("0%")
+
         self.health_value.setObjectName("healthValue")
+
         self.health_value.setAlignment(Qt.AlignCenter)
 
-        health_panel.layout.addWidget(
-            self.health_value
-        )
+        health_panel.layout.addWidget(self.health_value)
 
         self.health_bar = QProgressBar()
+
         self.health_bar.setRange(0, 100)
+
         self.health_bar.setTextVisible(False)
+
         self.health_bar.setFixedHeight(13)
+
         self.health_bar.setObjectName("healthBar")
 
-        health_panel.layout.addWidget(
-            self.health_bar
-        )
+        health_panel.layout.addWidget(self.health_bar)
 
         self.health_hint = QLabel("")
+
         self.health_hint.setObjectName("healthHint")
+
         self.health_hint.setAlignment(Qt.AlignCenter)
+
         self.health_hint.setWordWrap(True)
 
-        health_panel.layout.addWidget(
-            self.health_hint
-        )
+        health_panel.layout.addWidget(self.health_hint)
 
-        middle.addWidget(
-            health_panel,
-            0,
-            2
-        )
+        middle.addWidget(health_panel, 0, 2)
 
         for col in range(3):
             middle.setColumnStretch(col, 1)
 
         root.addLayout(middle)
 
-        # =========================================================
-        # آخر الأعطال
-        # =========================================================
+        # =====================================================
+        # Recent Faults
+        # =====================================================
 
         recent_panel = MiniPanel(
-            "آخر الأعطال المسجلة",
-            QStyle.SP_FileDialogDetailedView
+            "آخر الأعطال المسجلة", QStyle.SP_FileDialogDetailedView
         )
 
         self.recent_table = QTableWidget()
 
         self.recent_table.setColumnCount(6)
 
-        self.recent_table.setHorizontalHeaderLabels([
-            "رقم العطل",
-            "التاريخ",
-            "الجهاز",
-            "المستخدم",
-            "الحالة",
-            "الأولوية"
-        ])
-
-        self.recent_table.setEditTriggers(
-            QTableWidget.NoEditTriggers
+        self.recent_table.setHorizontalHeaderLabels(
+            ["رقم العطل", "التاريخ", "الجهاز", "المستخدم", "الحالة", "الأولوية"]
         )
 
-        self.recent_table.setSelectionBehavior(
-            QTableWidget.SelectRows
-        )
+        self.recent_table.setEditTriggers(QTableWidget.NoEditTriggers)
 
-        self.recent_table.setSelectionMode(
-            QTableWidget.SingleSelection
-        )
+        self.recent_table.setSelectionBehavior(QTableWidget.SelectRows)
+
+        self.recent_table.setSelectionMode(QTableWidget.SingleSelection)
 
         self.recent_table.verticalHeader().setVisible(False)
 
-        self.recent_table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Stretch
-        )
+        self.recent_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
 
         self.recent_table.setMinimumHeight(205)
+
         self.recent_table.setAlternatingRowColors(True)
 
-        recent_panel.layout.addWidget(
-            self.recent_table
-        )
+        recent_panel.layout.addWidget(self.recent_table)
 
-        root.addWidget(
-            recent_panel
-        )
+        root.addWidget(recent_panel)
 
-        # =========================================================
-        # آخر تحديث
-        # =========================================================
+        # =====================================================
+        # Footer
+        # =====================================================
 
         self.footer = QLabel("آخر تحديث: --")
 
-        self.footer.setObjectName(
-            "dashboardFooter"
-        )
+        self.footer.setObjectName("dashboardFooter")
 
-        self.footer.setAlignment(
-            Qt.AlignLeft | Qt.AlignVCenter
-        )
+        self.footer.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-        root.addWidget(
-            self.footer
-        )
+        root.addWidget(self.footer)
 
-        # =========================================================
+        # =====================================================
         # Style
-        # =========================================================
+        # =====================================================
 
         self.setStyleSheet("""
             #dashboardPage {
@@ -338,22 +606,11 @@ class DashboardPage(QWidget):
                 color: #0f2338;
             }
 
-            #dashboardSubtitle {
-                font-size: 13px;
-                color: #64748b;
-            }
-
             #dashboardCredits {
                 font-size: 12px;
                 font-weight: 700;
                 color: #0891b2;
                 padding-top: 3px;
-            }
-
-            #dashboardCredits a {
-                color: #0891b2;
-                text-decoration: none;
-                font-weight: 800;
             }
 
             #dashboardRefresh {
@@ -376,6 +633,44 @@ class DashboardPage(QWidget):
             #dashboardRefresh:focus {
                 border: 1.5px solid #38bdf8;
             }
+
+            /* Greeting */
+
+            #greetingCard {
+                background: white;
+                border: 1px solid #dce7ed;
+                border-right: 5px solid #58b7c2;
+                border-radius: 15px;
+            }
+
+            #greetingCard:hover {
+                border: 1px solid #9bcbd0;
+                border-right: 5px solid #58b7c2;
+            }
+
+            #greetingLabel {
+                color: #17324d;
+                font-size: 21px;
+                font-weight: 800;
+            }
+
+            #greetingHint {
+                color: #718096;
+                font-size: 12px;
+                font-weight: 600;
+            }
+
+            #greetingRole {
+                background: #e6f7f8;
+                color: #087f8c;
+                border: 1px solid #b9e3e6;
+                border-radius: 9px;
+                padding: 7px 13px;
+                font-size: 11px;
+                font-weight: 800;
+            }
+
+            /* Cards */
 
             #statCard,
             #dashboardPanel {
@@ -411,6 +706,8 @@ class DashboardPage(QWidget):
                 border-radius: 2px;
             }
 
+            /* Panels */
+
             #panelIcon {
                 background: #e0f2fe;
                 border-radius: 7px;
@@ -422,6 +719,8 @@ class DashboardPage(QWidget):
                 font-size: 15px;
                 font-weight: 800;
             }
+
+            /* Health */
 
             #healthValue {
                 color: #0f2338;
@@ -447,11 +746,15 @@ class DashboardPage(QWidget):
                 padding: 5px;
             }
 
+            /* Footer */
+
             #dashboardFooter {
                 color: #94a3b8;
                 font-size: 11px;
                 padding-top: 2px;
             }
+
+            /* Table */
 
             QTableWidget {
                 background: white;
@@ -477,16 +780,24 @@ class DashboardPage(QWidget):
                 padding: 10px 8px;
                 font-weight: 700;
             }
-        """)
+            """)
+
+        # =====================================================
+        # التحية بعد بناء العناصر
+        # =====================================================
+
+        if self.is_super_admin():
+            self.update_greeting()
+        else:
+            self.greeting_card.hide()
 
     # =============================================================
-    # حذف محتويات Layout
+    # Clear Layout
     # =============================================================
 
     def _clear_layout(self, layout):
 
         while layout.count():
-
             item = layout.takeAt(0)
 
             widget = item.widget()
@@ -499,39 +810,32 @@ class DashboardPage(QWidget):
                 self._clear_layout(child_layout)
 
     # =============================================================
-    # إضافة صف حالة
+    # Status Row
     # =============================================================
 
-    def _add_status_row(
-        self,
-        layout,
-        label,
-        count,
-        total
-    ):
+    def _add_status_row(self, layout, label, count, total):
 
         row = QHBoxLayout()
         row.setSpacing(9)
 
         name = QLabel(label)
-        name.setObjectName("statusName")
+
         name.setMinimumWidth(118)
 
-        name.setStyleSheet(
-            "color:#53677a;"
-            "font-size:12px;"
-            "font-weight:600;"
-        )
+        name.setStyleSheet("""
+            color:#53677a;
+            font-size:12px;
+            font-weight:600;
+            """)
 
         bar = QProgressBar()
 
-        bar.setRange(
-            0,
-            max(total, 1)
-        )
+        bar.setRange(0, max(total, 1))
 
         bar.setValue(count)
+
         bar.setTextVisible(False)
+
         bar.setFixedHeight(9)
 
         bar.setStyleSheet("""
@@ -545,47 +849,50 @@ class DashboardPage(QWidget):
                 background: #4b7ea5;
                 border-radius: 4px;
             }
-        """)
+            """)
 
         number = QLabel(str(count))
 
-        number.setObjectName(
-            "statusNumber"
-        )
-
-        number.setAlignment(
-            Qt.AlignCenter
-        )
+        number.setAlignment(Qt.AlignCenter)
 
         number.setMinimumWidth(32)
 
-        number.setStyleSheet(
-            "color:#0f2338;"
-            "font-size:12px;"
-            "font-weight:800;"
-        )
+        number.setStyleSheet("""
+            color:#0f2338;
+            font-size:12px;
+            font-weight:800;
+            """)
 
         row.addWidget(name)
+
         row.addWidget(bar, 1)
+
         row.addWidget(number)
 
         layout.addLayout(row)
 
     # =============================================================
-    # تحديث البيانات
+    # Refresh
     # =============================================================
 
     def refresh(self):
+
+        # ---------------------------------------------------------
+        # التحية لـ SUPER_ADMIN فقط
+        # ---------------------------------------------------------
+
+        if self.is_super_admin():
+            self.update_greeting()
+
+        else:
+            self.greeting_card.hide()
 
         connection = get_connection()
         cursor = connection.cursor()
 
         def count(query, params=()):
 
-            cursor.execute(
-                query,
-                params
-            )
+            cursor.execute(query, params)
 
             result = cursor.fetchone()
 
@@ -595,12 +902,8 @@ class DashboardPage(QWidget):
             return 0
 
         try:
-
             # =====================================================
-            # الأجهزة
-            #
-            # هنا نحسب كل الأجهزة بدون استثناء.
-            # لذلك لو عندك 221 جهاز سيظهر 221 في الرئيسية.
+            # Devices
             # =====================================================
 
             cursor.execute("""
@@ -628,121 +931,99 @@ class DashboardPage(QWidget):
                         END
                     ) AS null_archived
                 FROM devices
-            """)
+                """)
 
             debug = cursor.fetchone()
 
             total_devices = debug["total"] or 0
-            
-            active_devices = debug["active"] or 0
-            archived_devices = debug["archived"] or 0
-            null_archived_devices = debug["null_archived"] or 0
-
-          
 
             # =====================================================
-            # الأعطال
+            # Faults
             # =====================================================
 
-            total_faults = count(
-                "SELECT COUNT(*) FROM faults"
-            )
-
-            open_faults = count(
-                """
+            total_faults = count("""
                 SELECT COUNT(*)
                 FROM faults
-                WHERE LTRIM(RTRIM(ISNULL(status, N''))) NOT IN (
+                """)
+
+            open_faults = count("""
+                SELECT COUNT(*)
+                FROM faults
+                WHERE LTRIM(
+                    RTRIM(
+                        ISNULL(
+                            status,
+                            N''
+                        )
+                    )
+                ) NOT IN (
                     N'تم الإصلاح',
                     N'تم التسليم'
                 )
-                """
-            )
+                """)
 
             # =====================================================
-            # المباني
-            # =====================================================
-            total_buildings = count(
-    """
-    SELECT COUNT(DISTINCT building_id)
-    FROM devices
-    WHERE is_archived = 0
-      AND building_id IS NOT NULL
-    """
-)
-
-            # =====================================================
-            # قطع الغيار الناقصة
+            # Buildings
             # =====================================================
 
-            missing_spare_parts = count(
-                """
+            total_buildings = count("""
+                SELECT COUNT(
+                    DISTINCT building_id
+                )
+                FROM devices
+                WHERE is_archived = 0
+                  AND building_id IS NOT NULL
+                """)
+
+            # =====================================================
+            # Spare Parts
+            # =====================================================
+
+            missing_spare_parts = count("""
                 SELECT COUNT(*)
                 FROM spare_parts
                 WHERE is_archived = 0
                   AND quantity < required_quantity
-                """
-            )
+                """)
 
             # =====================================================
-            # تحديث البطاقات
+            # Cards
             # =====================================================
 
-            self.cards["devices"].set_value(
-                total_devices
-            )
+            self.cards["devices"].set_value(total_devices)
 
-            self.cards["faults"].set_value(
-                total_faults
-            )
+            self.cards["faults"].set_value(total_faults)
 
-            self.cards["open"].set_value(
-                open_faults
-            )
+            self.cards["open"].set_value(open_faults)
 
-            self.cards["buildings"].set_value(
-                total_buildings
-            )
+            self.cards["buildings"].set_value(total_buildings)
 
-            self.cards["spare_parts"].set_value(
-                missing_spare_parts
-            )
+            self.cards["spare_parts"].set_value(missing_spare_parts)
 
             # =====================================================
-            # حالة الأجهزة
+            # Device Status
             # =====================================================
 
-            device_statuses = [
-                "صالح",
-                "يحتاج فحص",
-                "عطل",
-                "خارج الخدمة"
-            ]
+            device_statuses = ["صالح", "يحتاج فحص", "عطل", "خارج الخدمة"]
 
-            self._clear_layout(
-                self.device_status_layout
-            )
+            self._clear_layout(self.device_status_layout)
 
             for status in device_statuses:
-
                 value = count(
                     """
                     SELECT COUNT(*)
                     FROM devices
                     WHERE status = ?
                     """,
-                    (status,)
+                    (status,),
                 )
 
                 self._add_status_row(
-                    self.device_status_layout,
-                    status,
-                    value,
-                    total_devices
+                    self.device_status_layout, status, value, total_devices
                 )
 
             # =====================================================
-            # حالة الأعطال
+            # Fault Status
             # =====================================================
 
             fault_statuses = [
@@ -754,95 +1035,65 @@ class DashboardPage(QWidget):
                 "تم التسليم",
             ]
 
-            self._clear_layout(
-                self.fault_status_layout
-            )
+            self._clear_layout(self.fault_status_layout)
 
             for status in fault_statuses:
-
                 value = count(
                     """
                     SELECT COUNT(*)
                     FROM faults
                     WHERE status = ?
                     """,
-                    (status,)
+                    (status,),
                 )
 
                 self._add_status_row(
-                    self.fault_status_layout,
-                    status,
-                    value,
-                    total_faults
+                    self.fault_status_layout, status, value, total_faults
                 )
 
             # =====================================================
-            # مؤشر التشغيل
-            # =====================================================
-            # نحسب نسبة الأجهزة الصالحة من الأجهزة النشطة فقط.
-            # الأجهزة المؤرشفة لا تدخل في نسبة التشغيل.
+            # Health
             # =====================================================
 
-            healthy = count(
-                """
+            healthy = count("""
                 SELECT COUNT(*)
                 FROM devices
                 WHERE is_archived = 0
-                  AND LTRIM(RTRIM(status)) = N'صالح'
-                """
-            )
+                  AND LTRIM(
+                      RTRIM(
+                          status
+                      )
+                  ) = N'صالح'
+                """)
 
-            active_devices = count(
-                """
+            active_devices = count("""
                 SELECT COUNT(*)
                 FROM devices
                 WHERE is_archived = 0
-                """
-            )
+                """)
 
-            health = (
-                round((healthy / active_devices) * 100)
-                if active_devices
-                else 0
-            )
+            health = round((healthy / active_devices) * 100) if active_devices else 0
 
-            self.health_value.setText(
-                f"{health}%"
-            )
+            self.health_value.setText(f"{health}%")
 
-            self.health_bar.setValue(
-                health
-            )
+            self.health_bar.setValue(health)
 
             if health >= 90:
-                hint = (
-                    "ممتاز — أغلب الأجهزة تعمل "
-                    "بصورة طبيعية."
-                )
+                hint = "ممتاز — أغلب الأجهزة تعمل بصورة طبيعية."
 
             elif health >= 70:
-                hint = (
-                    "جيد — توجد بعض الأجهزة "
-                    "التي تحتاج متابعة."
-                )
+                hint = "جيد — توجد بعض الأجهزة التي تحتاج متابعة."
 
             elif active_devices:
-                hint = (
-                    "يحتاج متابعة — نسبة الأجهزة "
-                    "غير السليمة مرتفعة."
-                )
+                hint = "يحتاج متابعة — نسبة الأجهزة غير السليمة مرتفعة."
 
             else:
-                hint = (
-                    "لا توجد أجهزة نشطة حتى الآن."
-                )
+                hint = "لا توجد أجهزة نشطة حتى الآن."
 
-            self.health_hint.setText(
-                hint
-            )
+            self.health_hint.setText(hint)
 
             # =====================================================
-            # آخر الأعطال
+            # Recent Faults
             # =====================================================
 
             cursor.execute("""
@@ -857,23 +1108,16 @@ class DashboardPage(QWidget):
                 LEFT JOIN devices
                     ON faults.device_id = devices.id
                 ORDER BY faults.id DESC
-            """)
+                """)
 
             recent = cursor.fetchall()
-
-            # =====================================================
-            # تحديث جدول آخر الأعطال
-            # =====================================================
 
             self.recent_table.setRowCount(0)
 
             for fault in recent:
-
                 row = self.recent_table.rowCount()
 
-                self.recent_table.insertRow(
-                    row
-                )
+                self.recent_table.insertRow(row)
 
                 values = [
                     fault["fault_number"],
@@ -885,38 +1129,25 @@ class DashboardPage(QWidget):
                 ]
 
                 for col, value in enumerate(values):
+                    item = QTableWidgetItem(str(value or ""))
 
-                    item = QTableWidgetItem(
-                        str(value or "")
-                    )
+                    item.setTextAlignment(Qt.AlignCenter)
 
-                    item.setTextAlignment(
-                        Qt.AlignCenter
-                    )
-
-                    self.recent_table.setItem(
-                        row,
-                        col,
-                        item
-                    )
+                    self.recent_table.setItem(row, col, item)
 
             # =====================================================
-            # آخر تحديث
+            # Last Update
             # =====================================================
 
             self.footer.setText(
-                "آخر تحديث: "
-                + datetime.now().strftime(
-                    "%Y-%m-%d %H:%M"
-                )
+                "آخر تحديث: " + datetime.now().strftime("%Y-%m-%d %H:%M")
             )
 
         finally:
-
             connection.close()
 
     # =============================================================
-    # عند فتح الصفحة
+    # Show Event
     # =============================================================
 
     def showEvent(self, event):

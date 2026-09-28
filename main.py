@@ -82,6 +82,7 @@ class MainWindow(QMainWindow):
         # -----------------------------------------------------
         # Brand
         # -----------------------------------------------------
+
         brand_widget = QWidget()
         brand_widget.setObjectName("sidebarBrand")
 
@@ -94,12 +95,12 @@ class MainWindow(QMainWindow):
         brand_icon.setAlignment(Qt.AlignCenter)
         brand_icon.setFixedSize(58, 58)
 
-        # تحميل اللوجو من assets بطريقة مستقلة عن مكان تشغيل البرنامج.
         logo_path = os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
             "assets",
             "nmc_logo3.png",
         )
+
         logo_pixmap = QPixmap(logo_path)
 
         if not logo_pixmap.isNull():
@@ -112,7 +113,6 @@ class MainWindow(QMainWindow):
                 )
             )
         else:
-            # بديل احتياطي في حالة عدم وجود ملف الصورة.
             brand_icon.setText("NMC")
 
         brand_text_layout = QVBoxLayout()
@@ -131,13 +131,14 @@ class MainWindow(QMainWindow):
 
         brand_layout.addWidget(brand_icon)
         brand_layout.addLayout(brand_text_layout, 1)
-        sidebar_layout.addWidget(brand_widget)
 
+        sidebar_layout.addWidget(brand_widget)
         sidebar_layout.addSpacing(25)
 
         # -----------------------------------------------------
         # User Card
         # -----------------------------------------------------
+
         user_card_wrapper = QWidget()
         user_card_wrapper.setObjectName("userCardWrapper")
 
@@ -164,12 +165,22 @@ class MainWindow(QMainWindow):
             or "مستخدم النظام"
         )
 
-        role_name = (
-            self.current_user.get("role_name")
-            or self.current_user.get("role")
-            or self.current_user.get("role_code")
-            or "مستخدم"
-        )
+        # =====================================================
+        # اسم الدور الظاهر للمستخدم
+        # =====================================================
+
+        role_code = str(
+            self.current_user.get("role_code", "")
+        ).strip().upper()
+
+        if role_code == "SUPER_ADMIN":
+            role_name = "قائد شبكة الربط المحلية"
+        elif role_code == "ADMIN":
+            role_name = "Admin"
+        elif role_code == "SUB_ADMIN":
+            role_name = "Sub Admin"
+        else:
+            role_name = "مستخدم"
 
         user_name = QLabel(str(display_name))
         user_name.setObjectName("userName")
@@ -187,20 +198,23 @@ class MainWindow(QMainWindow):
         wrapper_layout = QVBoxLayout(user_card_wrapper)
         wrapper_layout.setContentsMargins(0, 0, 0, 0)
         wrapper_layout.addWidget(user_card)
-        sidebar_layout.addWidget(user_card_wrapper)
 
+        sidebar_layout.addWidget(user_card_wrapper)
         sidebar_layout.addSpacing(24)
 
         # -----------------------------------------------------
         # Navigation
         # -----------------------------------------------------
+
         section_label = QLabel("التشغيل اليومي")
         section_label.setObjectName("sectionLabel")
+
         sidebar_layout.addWidget(section_label)
         sidebar_layout.addSpacing(7)
 
         nav_container = QWidget()
         nav_container.setObjectName("navContainer")
+
         nav_layout = QVBoxLayout(nav_container)
         nav_layout.setContentsMargins(0, 0, 0, 0)
         nav_layout.setSpacing(6)
@@ -222,14 +236,30 @@ class MainWindow(QMainWindow):
 
         management_label = QLabel("الإدارة والمتابعة")
         management_label.setObjectName("sectionLabel")
+
         nav_layout.addSpacing(14)
         nav_layout.addWidget(management_label)
         nav_layout.addSpacing(5)
 
-        self.btn_org_structure = self.create_nav_button("", "الهيكل التنظيمي")
-        self.btn_users = self.create_nav_button("", "إدارة المستخدمين")
-        self.btn_permissions = self.create_nav_button("", "الصلاحيات")
-        self.btn_logs = self.create_nav_button("", "سجل العمليات")
+        self.btn_org_structure = self.create_nav_button(
+            "",
+            "الهيكل التنظيمي"
+        )
+
+        self.btn_users = self.create_nav_button(
+            "",
+            "إدارة المستخدمين"
+        )
+
+        self.btn_permissions = self.create_nav_button(
+            "",
+            "الصلاحيات"
+        )
+
+        self.btn_logs = self.create_nav_button(
+            "",
+            "سجل العمليات"
+        )
 
         for button in (
             self.btn_org_structure,
@@ -239,8 +269,8 @@ class MainWindow(QMainWindow):
         ):
             nav_layout.addWidget(button)
 
-        # ترتيب الصفحات الداخلي يطابق ترتيب QStackedWidget،
-        # وليس بالضرورة ترتيب ظهور الأزرار في الـ Sidebar.
+        # ترتيب الصفحات الداخلي يطابق ترتيب QStackedWidget
+
         self.nav_buttons = [
             self.btn_home,
             self.btn_devices,
@@ -259,8 +289,10 @@ class MainWindow(QMainWindow):
         # -----------------------------------------------------
         # Footer / Logout
         # -----------------------------------------------------
+
         footer_widget = QWidget()
         footer_widget.setObjectName("sidebarFooterWidget")
+
         footer_layout = QVBoxLayout(footer_widget)
         footer_layout.setContentsMargins(0, 0, 0, 0)
         footer_layout.setSpacing(10)
@@ -278,11 +310,13 @@ class MainWindow(QMainWindow):
 
         footer_layout.addWidget(divider)
         footer_layout.addWidget(self.logout_button)
+
         sidebar_layout.addWidget(footer_widget)
 
         # -----------------------------------------------------
-        # Identity colors
+        # Sidebar Style
         # -----------------------------------------------------
+
         sidebar.setStyleSheet("""
             QWidget#sidebar {
                 background: qlineargradient(
@@ -447,7 +481,6 @@ class MainWindow(QMainWindow):
     def create_nav_button(self, icon_text, label_text):
         button = QPushButton(f"{icon_text}   {label_text}")
         button.setObjectName("navButton")
-        # الزر يحتفظ بحالة الصفحة الحالية، وليس بحالة الـ hover.
         button.setCheckable(True)
         button.setCursor(Qt.PointingHandCursor)
         button.setMinimumHeight(44)
@@ -458,7 +491,7 @@ class MainWindow(QMainWindow):
     # =========================================================
 
     def build_pages(self):
-        self.home_page = DashboardPage()
+        self.home_page = DashboardPage(self.current_user)
         self.devices_page = DevicesPage(self.current_user)
         self.faults_page = FaultsPage(self.current_user)
         self.spare_parts_page = SparePartsPage()
@@ -486,7 +519,8 @@ class MainWindow(QMainWindow):
     def build_navigation(self):
         for page_index, button in enumerate(self.nav_buttons):
             button.clicked.connect(
-                lambda checked=False, index=page_index: self.show_page(index)
+                lambda checked=False, index=page_index:
+                self.show_page(index)
             )
 
     # =========================================================
@@ -494,19 +528,22 @@ class MainWindow(QMainWindow):
     # =========================================================
 
     def has_permission(self, permission_code):
-        role = str(self.current_user.get("role_code", "")).strip().upper()
+        role = str(
+            self.current_user.get("role_code", "")
+        ).strip().upper()
 
         if role == "SUPER_ADMIN":
             return True
 
         return bool(
-            self.current_user.get("permissions", {}).get(permission_code, False)
+            self.current_user.get(
+                "permissions",
+                {}
+            ).get(permission_code, False)
         )
 
     def apply_permissions(self):
-        # جميع عناصر الـ Sidebar تظل ظاهرة دائمًا.
-        # الزر غير المسموح به يتم تعطيله بدل إخفائه،
-        # حتى يظل شكل القائمة ثابتًا لكل المستخدمين.
+
         self.btn_home.setVisible(True)
         self.btn_devices.setVisible(True)
         self.btn_faults.setVisible(True)
@@ -515,28 +552,50 @@ class MainWindow(QMainWindow):
         self.btn_org_structure.setVisible(True)
         self.btn_logs.setVisible(True)
 
-        self.btn_home.setEnabled(self.has_permission("dashboard.view"))
-        self.btn_devices.setEnabled(self.has_permission("devices.view"))
-        self.btn_faults.setEnabled(self.has_permission("faults.view"))
+        self.btn_home.setEnabled(
+            self.has_permission("dashboard.view")
+        )
+
+        self.btn_devices.setEnabled(
+            self.has_permission("devices.view")
+        )
+
+        self.btn_faults.setEnabled(
+            self.has_permission("faults.view")
+        )
+
         self.btn_spare_parts.setEnabled(
             self.has_permission("spare_parts.view")
         )
-        self.btn_ink.setEnabled(self.has_permission("ink.view"))
+
+        self.btn_ink.setEnabled(
+            self.has_permission("ink.view")
+        )
+
         self.btn_org_structure.setEnabled(
             self.has_permission("ink.org_structure.manage")
         )
-        role = str(self.current_user.get("role_code", "")).strip().upper()
+
+        role = str(
+            self.current_user.get("role_code", "")
+        ).strip().upper()
 
         # إدارة المستخدمين والصلاحيات تظهر للـ SUPER_ADMIN فقط.
         is_super_admin = role == "SUPER_ADMIN"
+
         self.btn_users.setVisible(is_super_admin)
         self.btn_permissions.setVisible(is_super_admin)
 
         self.btn_users.setEnabled(
-            is_super_admin and self.has_permission("users.view")
+            is_super_admin
+            and self.has_permission("users.view")
         )
+
         self.btn_permissions.setEnabled(is_super_admin)
-        self.btn_logs.setEnabled(role in ("ADMIN", "SUPER_ADMIN"))
+
+        self.btn_logs.setEnabled(
+            role in ("ADMIN", "SUPER_ADMIN")
+        )
 
     # =========================================================
     # Navigation
@@ -548,7 +607,6 @@ class MainWindow(QMainWindow):
 
         self.pages.setCurrentIndex(index)
 
-        # إلغاء التحديد عن جميع الأزرار ثم تثبيت زر الصفحة الحالية.
         for button in self.nav_buttons:
             button.setChecked(False)
 
@@ -610,6 +668,7 @@ def main():
     app = QApplication(sys.argv)
     app.setStyle("Fusion")
     app.setLayoutDirection(Qt.RightToLeft)
+
     setup_arabic_localization(app)
 
     fonts_dir = os.path.join(
@@ -626,6 +685,7 @@ def main():
 
     for font_file in font_files:
         font_path = os.path.join(fonts_dir, font_file)
+
         if os.path.exists(font_path):
             QFontDatabase.addApplicationFont(font_path)
 
@@ -633,9 +693,12 @@ def main():
     app.setStyleSheet(Theme.get_global_stylesheet())
 
     login_page = LoginPage()
+
     login_window = QMainWindow()
     login_window.setWindowTitle("الشبكة - تسجيل الدخول")
-    login_window.resize(550, 620)
+    login_window.resize(1200, 750)
+    login_window.setMinimumSize(900, 600)
+
     login_window.setCentralWidget(login_page)
     login_window.setLayoutDirection(Qt.RightToLeft)
 
@@ -651,6 +714,7 @@ def main():
                 module_name="النظام",
                 description="تم تسجيل الخروج",
             )
+
             current_window.close()
             main_window["window"] = None
 
@@ -664,10 +728,12 @@ def main():
 
         window = MainWindow(user)
         main_window["window"] = window
+
         window.logout_requested.connect(handle_logout)
         window.show()
 
     login_page.login_successful.connect(open_main)
+
     login_window.show()
 
     return app.exec()

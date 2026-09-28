@@ -566,7 +566,7 @@ class InkPage(QWidget):
         self.btn_export.clicked.connect(self._export_excel)
         title_row.addWidget(self.btn_export)
 
-        self.btn_add = QPushButton("＋  إضافة حركة")
+        self.btn_add = QPushButton("＋  إضافة حبارة")
         self.btn_add.setObjectName("primaryButton")
         self.btn_add.setMinimumHeight(38)
         self.btn_add.clicked.connect(self._add_record)
