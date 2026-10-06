@@ -525,10 +525,21 @@ def initialize_database():
         row = cursor.fetchone()
 
         if row[0] == 0:
+            missing_tables.append(table)
 
-            missing_tables.append(
-                table
+    try:
+        cursor.execute("""
+            IF NOT EXISTS (
+                SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'faults' AND COLUMN_NAME = 'fault_target'
             )
+            BEGIN
+                ALTER TABLE faults ADD fault_target NVARCHAR(50) NULL DEFAULT 'device';
+            END
+        """)
+        connection.commit()
+    except Exception as err:
+        print("MIGRATION WARNING (fault_target):", err)
 
     cursor.close()
 
