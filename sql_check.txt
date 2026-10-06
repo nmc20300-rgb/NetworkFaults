@@ -1,0 +1,64 @@
+﻿
+database.py:1:import pyodbc
+database.py:12:SQL_SERVER = "localhost"
+database.py:13:SQL_DATABASE = "NetworkFaults"
+database.py:18:    f"DRIVER={{{SQL_DRIVER}}};"
+database.py:19:    f"SERVER={SQL_SERVER};"
+database.py:21:    "Trusted_Connection=yes;"
+database.py:268:    connection = pyodbc.connect(
+migrate_to_sqlserver.py:1:import sqlite3
+migrate_to_sqlserver.py:2:import pyodbc
+migrate_to_sqlserver.py:7:# SQLite
+migrate_to_sqlserver.py:10:SQLITE_DB = BASE_DIR / "data" / "network_faults.db"
+migrate_to_sqlserver.py:17:    "DRIVER={ODBC Driver 18 for SQL Server};"
+migrate_to_sqlserver.py:18:    "SERVER=localhost;"
+migrate_to_sqlserver.py:19:    "DATABASE=NetworkFaults;"
+migrate_to_sqlserver.py:20:    "Trusted_Connection=yes;"
+migrate_to_sqlserver.py:36:def sqlite_connection():
+migrate_to_sqlserver.py:37:    con = sqlite3.connect(SQLITE_DB)
+migrate_to_sqlserver.py:38:    con.row_factory = sqlite3.Row
+migrate_to_sqlserver.py:43:    return pyodbc.connect(SQL_SERVER_CONNECTION)
+migrate_to_sqlserver.py:46:def get_columns(sqlite_cur, table):
+migrate_to_sqlserver.py:47:    rows = sqlite_cur.execute(f"PRAGMA table_info([{table}])").fetchall()
+migrate_to_sqlserver.py:51:def migrate_table(sqlite_cur, sql_cur, table):
+migrate_to_sqlserver.py:52:    columns = get_columns(sqlite_cur, table)
+migrate_to_sqlserver.py:54:    rows = sqlite_cur.execute(
+migrate_to_sqlserver.py:58:    print(f"\n[{table}] SQLite rows: {len(rows)}")
+migrate_to_sqlserver.py:77:        # SQLite INTEGER 0/1 -> SQL Server BIT
+migrate_to_sqlserver.py:95:def verify_counts(sqlite_cur, sql_cur):
+migrate_to_sqlserver.py:103:        sqlite_count = sqlite_cur.execute(
+migrate_to_sqlserver.py:111:        status = "OK" if sqlite_count == sqlserver_count else "MISMATCH"
+migrate_to_sqlserver.py:115:            f"SQLite={sqlite_count:<5} "
+migrate_to_sqlserver.py:116:            f"SQL Server={sqlserver_count:<5} "
+migrate_to_sqlserver.py:120:        if sqlite_count != sqlserver_count:
+migrate_to_sqlserver.py:128:    print("NetworkFaults - SQLite -> SQL Server Migration")
+migrate_to_sqlserver.py:131:    print(f"\nSQLite DB:")
+migrate_to_sqlserver.py:132:    print(SQLITE_DB)
+migrate_to_sqlserver.py:134:    if not SQLITE_DB.exists():
+migrate_to_sqlserver.py:135:        print("\nERROR: SQLite database not found.")
+migrate_to_sqlserver.py:138:    sqlite_con = None
+migrate_to_sqlserver.py:142:        sqlite_con = sqlite_connection()
+migrate_to_sqlserver.py:143:        sqlite_cur = sqlite_con.cursor()
+migrate_to_sqlserver.py:213:            migrate_table(sqlite_cur, sql_cur, table)
+migrate_to_sqlserver.py:220:        if verify_counts(sqlite_cur, sql_cur):
+migrate_to_sqlserver.py:239:        if sqlite_con:
+migrate_to_sqlserver.py:240:            sqlite_con.close()
+sqlserver_backup_before_bulk_fix\ui\faults_page.py:1195:                / "NetworkFaultsReports"
+sqlserver_backup_before_bulk_fix\ui\reports_page.py:1421:            / "NetworkFaultsReports"
+sqlserver_backup_before_bulk_fix\ui\spare_parts_page.py:1:import sqlite3
+sqlserver_backup_before_bulk_fix\ui\spare_parts_page.py:187:    # وتم ترحيل البيانات إليها من SQLite.
+sqlserver_backup_before_bulk_fix\ui\spare_parts_page.py:230:    except sqlite3.OperationalError:
+ui\faults_page.py:1462:                / "NetworkFaultsReports"
+ui\reports_page.py:1431:            / "NetworkFaultsReports"
+ui\settings_page.py:3:import sqlite3
+ui\settings_page.py:69:        con = sqlite3.connect(self.database_path)
+ui\settings_page.py:80:        con = sqlite3.connect(self.database_path)
+ui\settings_page.py:88:        con = sqlite3.connect(self.database_path)
+ui\settings_page.py:515:            except sqlite3.OperationalError:
+ui\settings_page.py:546:            self, "إنشاء نسخة احتياطية", default_name, "SQLite Database (*.db)"
+ui\settings_page.py:552:            source = sqlite3.connect(self.database_path)
+ui\settings_page.py:554:            backup = sqlite3.connect(target)
+ui\settings_page.py:564:            self, "اختيار النسخة الاحتياطية", "", "SQLite Database (*.db)"
+ui\spare_parts_page.py:1:import sqlite3
+
+

@@ -20,7 +20,9 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QProgressDialog,
     QScrollArea,
+    QMenu,
 )
+from PySide6.QtGui import QKeySequence, QShortcut
 
 from database import (
     get_connection,
@@ -857,10 +859,6 @@ class DevicesPage(QWidget):
             can_edit
         )
 
-        self.archive_button.setVisible(
-            can_delete
-        )
-
         self.device_delete_button.setVisible(
             can_delete
         )
@@ -974,18 +972,6 @@ class DevicesPage(QWidget):
             self.edit_device
         )
 
-        self.archive_button = QPushButton(
-            "📦  أرشفة"
-        )
-
-        self.archive_button.setObjectName(
-            "secondary"
-        )
-
-        self.archive_button.clicked.connect(
-            self.archive_device
-        )
-
         self.device_delete_button = QPushButton(
             "🗑  حذف"
         )
@@ -996,6 +982,18 @@ class DevicesPage(QWidget):
 
         self.device_delete_button.clicked.connect(
             self.delete_device
+        )
+
+        self.select_all_button = QPushButton(
+            "☑  تحديد الكل"
+        )
+
+        self.select_all_button.setObjectName(
+            "secondary"
+        )
+
+        self.select_all_button.clicked.connect(
+            self.toggle_select_all
         )
 
         self.clear_all_button = QPushButton(
@@ -1010,6 +1008,17 @@ class DevicesPage(QWidget):
             self.clear_all_devices
         )
 
+        self.device_selection_label = QLabel("")
+
+        self.device_selection_label.setStyleSheet(
+            "color: #0891b2; font-weight: 700;"
+            " padding: 4px 8px;"
+            " background: #e0f2fe;"
+            " border-radius: 6px;"
+        )
+
+        self.device_selection_label.setVisible(False)
+
         head.addWidget(
             self.import_button
         )
@@ -1021,17 +1030,20 @@ class DevicesPage(QWidget):
         head.addWidget(
             self.edit_button
         )
-
-        head.addWidget(
-            self.archive_button
-        )
-
         head.addWidget(
             self.device_delete_button
         )
 
         head.addWidget(
+            self.select_all_button
+        )
+
+        head.addWidget(
             self.clear_all_button
+        )
+
+        head.addWidget(
+            self.device_selection_label
         )
 
         root.addLayout(
@@ -1188,7 +1200,25 @@ class DevicesPage(QWidget):
         )
 
         self.table.setSelectionMode(
-            QTableWidget.SingleSelection
+            QTableWidget.MultiSelection
+        )
+
+        self.table.itemSelectionChanged.connect(
+            self._on_device_selection_changed
+        )
+
+        self.table.setContextMenuPolicy(
+            Qt.CustomContextMenu
+        )
+        self.table.customContextMenuRequested.connect(
+            self._show_context_menu
+        )
+
+        QShortcut(
+            QKeySequence(Qt.Key_Escape),
+            self.table
+        ).activated.connect(
+            self.table.clearSelection
         )
 
         self.table.setEditTriggers(
@@ -2154,168 +2184,6 @@ class DevicesPage(QWidget):
         )
 
     # ========================================================
-    # Archive Device
-    # ========================================================
-
-    def archive_device(self):
-
-        if not self.has_permission(
-            "devices.delete"
-        ):
-
-            QMessageBox.warning(
-                self,
-                "غير مسموح",
-                "ليس لديك صلاحية أرشفة الأجهزة.",
-            )
-
-            return
-
-        device = self.get_selected_device()
-
-        if not device:
-            return
-
-        try:
-
-            already_archived = (
-                int(
-                    device["is_archived"] or 0
-                )
-                == 1
-            )
-
-        except (
-            KeyError,
-            TypeError,
-            ValueError,
-        ):
-
-            already_archived = False
-
-        if already_archived:
-
-            QMessageBox.information(
-                self,
-                "الجهاز مؤرشف",
-                "هذا الجهاز موجود بالفعل في الأرشيف.",
-            )
-
-            return
-
-        device_name = device[
-            "device_name"
-        ]
-
-        old_values = device_audit_data(
-            device
-        )
-
-        old_values[
-            "is_archived"
-        ] = 0
-
-        old_values[
-            "حالة الأرشفة"
-        ] = "غير مؤرشف"
-
-        new_values = dict(
-            old_values
-        )
-
-        new_values[
-            "is_archived"
-        ] = 1
-
-        new_values[
-            "حالة الأرشفة"
-        ] = "مؤرشف"
-
-        answer = QMessageBox.question(
-            self,
-            "تأكيد أرشفة الجهاز",
-            f"هل تريد أرشفة الجهاز «{device_name}»؟\n\n"
-            "سيظل سجل الجهاز محفوظًا، لكنه سيختفي من قائمة الأجهزة النشطة.",
-            QMessageBox.Yes
-            | QMessageBox.No,
-            QMessageBox.No,
-        )
-
-        if answer != QMessageBox.Yes:
-            return
-
-        con = get_connection()
-
-        cur = con.cursor()
-
-        try:
-
-            cur.execute(
-                """
-                UPDATE devices
-                SET
-                    is_archived = 1,
-                    updated_at = CURRENT_TIMESTAMP
-                WHERE id = ?
-                  AND is_archived = 0
-                """,
-                (
-                    device["id"],
-                ),
-            )
-
-            if cur.rowcount == 0:
-
-                con.rollback()
-
-                QMessageBox.information(
-                    self,
-                    "لم يتم التغيير",
-                    "لم يتم العثور على جهاز نشط لأرشفته.",
-                )
-
-                return
-
-            con.commit()
-
-        except Exception as error:
-
-            con.rollback()
-
-            QMessageBox.critical(
-                self,
-                "خطأ",
-                f"تعذر أرشفة الجهاز:\n\n{error}",
-            )
-
-            return
-
-        finally:
-
-            con.close()
-
-        write_audit_log(
-            user=self.current_user,
-            action="أرشفة",
-            module_name="الأجهزة",
-            record_id=device["id"],
-            description=(
-                f"تمت أرشفة الجهاز: "
-                f"{device_name}"
-            ),
-            old_values=old_values,
-            new_values=new_values,
-        )
-
-        self.load_devices()
-
-        QMessageBox.information(
-            self,
-            "تم",
-            f"تمت أرشفة الجهاز «{device_name}» بنجاح.",
-        )
-
-    # ========================================================
     # Delete All Devices
     # ========================================================
 
@@ -2439,6 +2307,108 @@ class DevicesPage(QWidget):
         self.load_devices()
 
     # ========================================================
+    # Helper: Selection
+    # ========================================================
+
+    def toggle_select_all(self):
+        """تحديد أو إلغاء تحديد كل العناصر بضغطة زر واحدة ذكية."""
+        selected_count = len(
+            set(idx.row() for idx in self.table.selectedIndexes())
+        )
+        total_rows = self.table.rowCount()
+        if total_rows == 0:
+            return
+
+        if selected_count >= total_rows:
+            self.table.clearSelection()
+        else:
+            self.table.selectAll()
+
+    def _on_device_selection_changed(self):
+        """تحديث عداد التحديد والزر الذكي وزر الحذف عند تغيير الصفوف المختارة."""
+        selected_rows = len(
+            set(
+                idx.row()
+                for idx in
+                self.table.selectedIndexes()
+            )
+        )
+        total_rows = self.table.rowCount()
+
+        if hasattr(self, "select_all_button"):
+            if total_rows > 0 and selected_rows >= total_rows:
+                self.select_all_button.setText("☐  إلغاء التحديد")
+            else:
+                self.select_all_button.setText("☑  تحديد الكل")
+
+        if selected_rows > 0:
+            self.device_selection_label.setText(
+                f"✔ {selected_rows} محدد"
+            )
+            self.device_selection_label.setVisible(True)
+            if selected_rows > 1:
+                self.device_delete_button.setText(f"🗑  حذف ({selected_rows})")
+            else:
+                self.device_delete_button.setText("🗑  حذف")
+        else:
+            self.device_selection_label.setVisible(False)
+            self.device_delete_button.setText("🗑  حذف")
+
+    def _show_context_menu(self, pos):
+        """قائمة كليك يمين أنيقة للجدول بدون زحمة أزرار في الواجهة."""
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background: white;
+                border: 1px solid #cbd5e1;
+                border-radius: 8px;
+                padding: 4px;
+                font-size: 12px;
+            }
+            QMenu::item {
+                padding: 6px 20px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background: #e0f2fe;
+                color: #0369a1;
+            }
+        """)
+
+        act_select_all = menu.addAction("☑  تحديد الكل")
+        act_select_all.triggered.connect(self.table.selectAll)
+
+        act_deselect = menu.addAction("☐  إلغاء التحديد")
+        act_deselect.triggered.connect(self.table.clearSelection)
+
+        selected_count = len(
+            set(idx.row() for idx in self.table.selectedIndexes())
+        )
+        if selected_count > 0:
+            menu.addSeparator()
+            act_delete = menu.addAction(f"🗑  حذف المحدد ({selected_count})")
+            act_delete.triggered.connect(self.delete_device)
+
+        menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def _get_selected_device_ids(self):
+        """إرجاع قائمة بمعرّفات (IDs) جميع الصفوف المحددة."""
+        rows = set(
+            idx.row()
+            for idx in
+            self.table.selectedIndexes()
+        )
+
+        ids = []
+
+        for row in sorted(rows):
+            item = self.table.item(row, 0)
+            if item:
+                ids.append(item.text())
+
+        return ids
+
+    # ========================================================
     # Delete Device
     # ========================================================
 
@@ -2456,107 +2426,151 @@ class DevicesPage(QWidget):
 
             return
 
-        device = self.get_selected_device()
+        device_ids = self._get_selected_device_ids()
 
-        if not device:
+        if not device_ids:
+
+            QMessageBox.information(
+                self,
+                "تنبيه",
+                "من فضلك اختر جهازًا أو أكثر أولاً.",
+            )
+
             return
 
-        old_values = device_audit_data(
-            device
+        count = len(device_ids)
+
+        answer = QMessageBox.question(
+            self,
+            "تأكيد الحذف",
+            f"هل تريد حذف {count} جهاز نهائيًا؟\n\n"
+            "الأجهزة المرتبطة بسجلات أعطال لن تُحذف.\n"
+            "لا يمكن التراجع عن هذا الحذف.",
+            QMessageBox.Yes
+            | QMessageBox.No,
+            QMessageBox.No,
         )
 
-        con = get_connection()
+        if answer != QMessageBox.Yes:
+            return
 
+        con = get_connection()
         cur = con.cursor()
 
-        try:
+        deleted_count = 0
+        skipped = []
+        errors = []
 
-            # الاحتفاظ بسجل الأعطال
-            cur.execute(
-                """
-                SELECT COUNT(*) AS total
-                FROM faults
-                WHERE device_id = ?
-                """,
-                (
-                    device["id"],
-                ),
-            )
+        for device_id in device_ids:
 
-            fault_count = int(
-                cur.fetchone()["total"] or 0
-            )
+            try:
 
-            if fault_count:
-
-                QMessageBox.warning(
-                    self,
-                    "لا يمكن حذف الجهاز",
-                    "هذا الجهاز مرتبط بسجلات أعطال.\n\n"
-                    "لم يتم حذفه حفاظًا على سجل الأعطال. "
-                    "احذف أو عالج سجلات الأعطال المرتبطة أولًا.",
+                cur.execute(
+                    """
+                    SELECT
+                        devices.*,
+                        buildings.name AS building_name
+                    FROM devices
+                    LEFT JOIN buildings
+                        ON devices.building_id = buildings.id
+                    WHERE devices.id = ?
+                    """,
+                    (device_id,),
                 )
 
-                return
+                device = cur.fetchone()
 
-            answer = QMessageBox.question(
-                self,
-                "تأكيد حذف الجهاز",
-                f"هل تريد حذف الجهاز نهائيًا؟\n\n"
-                f"{device['device_name']}\n\n"
-                "لا يمكن التراجع عن هذا الحذف.",
-                QMessageBox.Yes
-                | QMessageBox.No,
-                QMessageBox.No,
-            )
+                if not device:
+                    continue
 
-            if answer != QMessageBox.Yes:
-                return
+                old_values = device_audit_data(device)
 
-            cur.execute(
-                "DELETE FROM devices WHERE id = ?",
-                (
-                    device["id"],
-                ),
-            )
+                cur.execute(
+                    """
+                    SELECT COUNT(*) AS total
+                    FROM faults
+                    WHERE device_id = ?
+                    """,
+                    (device_id,),
+                )
 
+                fault_count = int(
+                    cur.fetchone()["total"] or 0
+                )
+
+                if fault_count:
+                    skipped.append(
+                        f"{device['device_name']} – مرتبط بسجلات أعطال"
+                    )
+                    continue
+
+                cur.execute(
+                    "DELETE FROM devices WHERE id = ?",
+                    (device_id,),
+                )
+
+                write_audit_log(
+                    user=self.current_user,
+                    action="حذف",
+                    module_name="الأجهزة",
+                    record_id=device["id"],
+                    description=(
+                        f"تم حذف الجهاز نهائيًا: "
+                        f"{device['device_name']}"
+                    ),
+                    old_values=old_values,
+                    new_values={"deleted": True},
+                )
+
+                deleted_count += 1
+
+            except Exception as error:
+
+                errors.append(
+                    f"{device_id}: {error}"
+                )
+
+        try:
             con.commit()
-
-        except Exception as error:
-
+        except Exception as exc:
             con.rollback()
-
             QMessageBox.critical(
                 self,
                 "خطأ",
-                f"حدث خطأ أثناء حذف الجهاز:\n\n{error}",
+                f"حدث خطأ أثناء حفظ التغييرات:\n\n{exc}",
             )
-
             return
-
         finally:
-
             con.close()
-
-        write_audit_log(
-            user=self.current_user,
-            action="حذف",
-            module_name="الأجهزة",
-            record_id=device["id"],
-            description=(
-                f"تم حذف الجهاز نهائيًا: "
-                f"{device['device_name']}"
-            ),
-            old_values=old_values,
-        )
 
         self.load_devices()
 
-        QMessageBox.information(
-            self,
-            "تم",
-            "تم حذف الجهاز نهائيًا.",
-        )
+        summary = f"تم حذف {deleted_count} جهاز بنجاح."
+
+        if skipped:
+            summary += (
+                "\n\nتم تخطي الأجهزة التالية "
+                "(مرتبطة بسجلات أعطال):\n"
+                + "\n".join(skipped)
+            )
+
+        if errors:
+            summary += (
+                "\n\nأخطاء:\n" + "\n".join(errors)
+            )
+
+        if skipped or errors:
+            QMessageBox.warning(
+                self,
+                "اكتمل مع تحذيرات",
+                summary,
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "تم",
+                summary,
+            )
 
     # ========================================================
     # Import Excel

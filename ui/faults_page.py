@@ -8,12 +8,31 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QCompleter
 from PySide6.QtWidgets import QFileDialog, QProgressDialog
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
-    QLabel, QPushButton, QLineEdit,
-    QTableWidget, QTableWidgetItem, QMessageBox, QDialog,
-    QComboBox, QTextEdit, QDialogButtonBox, QHeaderView, QFrame, QStyle,
-    QDateTimeEdit, QSpinBox, QCalendarWidget, QScrollArea
+    QApplication,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QGridLayout,
+    QLabel,
+    QPushButton,
+    QLineEdit,
+    QTableWidget,
+    QTableWidgetItem,
+    QMessageBox,
+    QDialog,
+    QComboBox,
+    QTextEdit,
+    QDialogButtonBox,
+    QHeaderView,
+    QFrame,
+    QStyle,
+    QDateTimeEdit,
+    QSpinBox,
+    QCalendarWidget,
+    QScrollArea,
+    QMenu,
 )
+from PySide6.QtGui import QKeySequence, QShortcut
 
 from database import get_connection, write_audit_log
 
@@ -24,10 +43,24 @@ def fault_audit_data(fault):
         return {}
 
     keys = (
-        "id", "fault_number", "entry_date", "building_id", "device_id",
-        "user_name", "receiver_name", "fault_description", "repair_actions",
-        "spare_parts", "technician", "priority", "status", "repair_date",
-        "delivery_date", "notes", "created_at", "updated_at",
+        "id",
+        "fault_number",
+        "entry_date",
+        "building_id",
+        "device_id",
+        "user_name",
+        "receiver_name",
+        "fault_description",
+        "repair_actions",
+        "spare_parts",
+        "technician",
+        "priority",
+        "status",
+        "repair_date",
+        "delivery_date",
+        "notes",
+        "created_at",
+        "updated_at",
     )
 
     snapshot = {}
@@ -2020,6 +2053,27 @@ class FaultsPage(QWidget):
             self.delete_fault
         )
 
+        self.select_all_button = QPushButton(
+            "☑  تحديد الكل"
+        )
+        self.select_all_button.setObjectName(
+            "secondaryButton"
+        )
+        self.select_all_button.clicked.connect(
+            self.toggle_select_all
+        )
+
+        self.selection_label = QLabel("")
+
+        self.selection_label.setStyleSheet(
+            "color: #0891b2; font-weight: 700;"
+            " padding: 4px 8px;"
+            " background: #e0f2fe;"
+            " border-radius: 6px;"
+        )
+
+        self.selection_label.setVisible(False)
+
         title_layout.addWidget(
             self.add_button
         )
@@ -2030,6 +2084,14 @@ class FaultsPage(QWidget):
 
         title_layout.addWidget(
             self.delete_button
+        )
+
+        title_layout.addWidget(
+            self.select_all_button
+        )
+
+        title_layout.addWidget(
+            self.selection_label
         )
 
         title_layout.addWidget(
@@ -2253,7 +2315,25 @@ class FaultsPage(QWidget):
         )
 
         self.table.setSelectionMode(
-            QTableWidget.SingleSelection
+            QTableWidget.MultiSelection
+        )
+
+        self.table.itemSelectionChanged.connect(
+            self._on_fault_selection_changed
+        )
+
+        self.table.setContextMenuPolicy(
+            Qt.CustomContextMenu
+        )
+        self.table.customContextMenuRequested.connect(
+            self._show_context_menu
+        )
+
+        QShortcut(
+            QKeySequence(Qt.Key_Escape),
+            self.table
+        ).activated.connect(
+            self.table.clearSelection
         )
 
         self.table.setEditTriggers(
@@ -2447,16 +2527,10 @@ class FaultsPage(QWidget):
 
     def load_building_filter(self):
         """
-        تحميل المباني التي لديها أعطال فقط.
+        تحميل جميع المباني الموجودة في جدول buildings.
 
-        أي مبنى ليس لديه أي سجل في جدول faults
-        لن يظهر داخل فلتر المباني.
-
-        وعند حذف آخر عطل من مبنى:
-        يختفي المبنى من الفلتر تلقائيًا.
-
-        وعند إضافة أول عطل لمبنى:
-        يظهر المبنى تلقائيًا.
+        الفلتر لا يعتمد على وجود أجهزة أو أعطال داخل المبنى.
+        أي مبنى موجود في قاعدة البيانات سيظهر مباشرة.
         """
 
         # الاحتفاظ بالمبنى المختار حاليًا
@@ -2469,53 +2543,64 @@ class FaultsPage(QWidget):
         connection = get_connection()
         cursor = connection.cursor()
 
-        cursor.execute("""
-            SELECT DISTINCT
-                b.id,
-                b.name
-            FROM buildings b
-            INNER JOIN faults f
-                ON f.building_id = b.id
-            WHERE b.name IS NOT NULL
-              AND LTRIM(RTRIM(b.name)) <> ''
-            ORDER BY b.name
-        """)
+        try:
 
-        buildings = cursor.fetchall()
+            cursor.execute("""
+                SELECT
+                    id,
+                    name
+                FROM buildings
+                WHERE name IS NOT NULL
+                  AND LTRIM(RTRIM(name)) <> ''
+                ORDER BY name
+            """)
 
-        connection.close()
+            buildings = cursor.fetchall()
+
+        finally:
+
+            connection.close()
 
         self.building_filter.blockSignals(
             True
         )
 
-        self.building_filter.clear()
+        try:
 
-        self.building_filter.addItem(
-            "كل المباني",
-            None
-        )
+            self.building_filter.clear()
 
-        for building in buildings:
-
+            # يظهر دائمًا أول اختيار
             self.building_filter.addItem(
-                building["name"],
-                building["id"]
+                "كل المباني",
+                None
             )
 
-        # إعادة اختيار المبنى السابق
-        # إذا كان ما زال موجودًا
-        if current_building_id is not None:
+            # إضافة كل المباني الموجودة في قاعدة البيانات
+            for building in buildings:
 
-            index = self.building_filter.findData(
-                current_building_id
-            )
-
-            if index >= 0:
-
-                self.building_filter.setCurrentIndex(
-                    index
+                self.building_filter.addItem(
+                    building["name"],
+                    building["id"]
                 )
+
+            # إعادة اختيار المبنى السابق
+            if current_building_id is not None:
+
+                index = self.building_filter.findData(
+                    current_building_id
+                )
+
+                if index >= 0:
+
+                    self.building_filter.setCurrentIndex(
+                        index
+                    )
+
+                else:
+
+                    self.building_filter.setCurrentIndex(
+                        0
+                    )
 
             else:
 
@@ -2523,15 +2608,11 @@ class FaultsPage(QWidget):
                     0
                 )
 
-        else:
+        finally:
 
-            self.building_filter.setCurrentIndex(
-                0
+            self.building_filter.blockSignals(
+                False
             )
-
-        self.building_filter.blockSignals(
-            False
-        )
 
     # =============================================================
     # مسح الفلاتر
@@ -3253,7 +3334,9 @@ class FaultsPage(QWidget):
                 },
             )
 
-            # تحديث فلتر المباني بعد الاستيراد
+            # تحديث قائمة المباني بعد الاستيراد.
+            # القائمة الآن تعتمد على جدول buildings
+            # وليس على وجود أعطال.
             self.load_building_filter()
 
             self.load_faults()
@@ -3776,8 +3859,10 @@ class FaultsPage(QWidget):
             new_values=audit_new_values,
         )
 
-        # مهم:
-        # تحديث فلتر المباني بعد إضافة العطل
+        # تحديث فلتر المباني.
+        # الفلتر يعتمد على جدول buildings،
+        # لذلك سيظل يعرض كل المباني حتى لو لم يكن
+        # بها أي أعطال.
         self.load_building_filter()
 
         self.load_faults()
@@ -4139,8 +4224,7 @@ class FaultsPage(QWidget):
                 new_values=audit_new_values,
             )
 
-            # مهم:
-            # تحديث فلتر المباني بعد تعديل العطل
+            # تحديث قائمة المباني من جدول buildings.
             self.load_building_filter()
 
             self.load_faults()
@@ -4167,6 +4251,107 @@ class FaultsPage(QWidget):
     # حذف عطل
     # =============================================================
 
+    def toggle_select_all(self):
+        """تحديد أو إلغاء تحديد كل العناصر بضغطة زر واحدة ذكية."""
+        selected_count = len(
+            set(idx.row() for idx in self.table.selectedIndexes())
+        )
+        total_rows = self.table.rowCount()
+        if total_rows == 0:
+            return
+
+        if selected_count >= total_rows:
+            self.table.clearSelection()
+        else:
+            self.table.selectAll()
+
+    def _on_fault_selection_changed(self):
+        """تحديث عداد التحديد والزر الذكي وزر الحذف عند تغيير الصفوف المختارة."""
+        selected_rows = len(
+            set(
+                idx.row()
+                for idx in
+                self.table.selectedIndexes()
+            )
+        )
+        total_rows = self.table.rowCount()
+
+        if hasattr(self, "select_all_button"):
+            if total_rows > 0 and selected_rows >= total_rows:
+                self.select_all_button.setText("☐  إلغاء التحديد")
+            else:
+                self.select_all_button.setText("☑  تحديد الكل")
+
+        if selected_rows > 0:
+            self.selection_label.setText(
+                f"✔ {selected_rows} محدد"
+            )
+            self.selection_label.setVisible(True)
+            if selected_rows > 1:
+                self.delete_button.setText(f"  حذف ({selected_rows})")
+            else:
+                self.delete_button.setText("  حذف")
+        else:
+            self.selection_label.setVisible(False)
+            self.delete_button.setText("  حذف")
+
+    def _show_context_menu(self, pos):
+        """قائمة كليك يمين أنيقة للجدول بدون زحمة أزرار في الواجهة."""
+        menu = QMenu(self)
+        menu.setStyleSheet("""
+            QMenu {
+                background: white;
+                border: 1px solid #cbd5e1;
+                border-radius: 8px;
+                padding: 4px;
+                font-size: 12px;
+            }
+            QMenu::item {
+                padding: 6px 20px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background: #e0f2fe;
+                color: #0369a1;
+            }
+        """)
+
+        act_select_all = menu.addAction("☑  تحديد الكل")
+        act_select_all.triggered.connect(self.table.selectAll)
+
+        act_deselect = menu.addAction("☐  إلغاء التحديد")
+        act_deselect.triggered.connect(self.table.clearSelection)
+
+        selected_count = len(
+            set(idx.row() for idx in self.table.selectedIndexes())
+        )
+        if selected_count > 0:
+            menu.addSeparator()
+            act_delete = menu.addAction(f"🗑  حذف المحدد ({selected_count})")
+            act_delete.triggered.connect(self.delete_fault)
+
+        menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def _get_selected_fault_ids(self):
+        """إرجاع قائمة بمعرّفات (IDs) جميع الصفوف المحددة."""
+        rows = set(
+            idx.row()
+            for idx in
+            self.table.selectedIndexes()
+        )
+
+        ids = []
+
+        for row in sorted(rows):
+            item = self.table.item(row, 0)
+            if item:
+                try:
+                    ids.append(int(item.text()))
+                except ValueError:
+                    pass
+
+        return ids
+
     def delete_fault(self):
 
         if not self.has_permission(
@@ -4181,62 +4366,62 @@ class FaultsPage(QWidget):
 
             return
 
-        selected = self.table.selectedItems()
+        fault_ids = self._get_selected_fault_ids()
 
-        if not selected:
+        if not fault_ids:
 
             QMessageBox.information(
                 self,
                 "تنبيه",
-                "اختر عطلًا أولًا."
+                "اختر عطلًا أو أكثر أولًا."
             )
 
             return
 
-        row = selected[0].row()
+        count = len(fault_ids)
 
-        fault_id = int(
-            self.table.item(
-                row,
-                0
-            ).text()
-        )
+        msg = (
+            f"هل أنت متأكد من حذف {count} عطل محدد؟\n\n"
+            "إذا كان قد تم صرف قطعة غيار لأي منها، "
+            "سيتم إرجاع الكمية للمخزن تلقائيًا."
+        ) if count > 1 else None
 
         connection = get_connection()
         cursor = connection.cursor()
 
-        cursor.execute(
-            "SELECT * FROM faults WHERE id = ?",
-            (
-                fault_id,
-            )
-        )
+        # عند تحديد عطل واحد فقط، نعرض رقم العطل في رسالة التأكيد
+        if count == 1:
 
-        fault = cursor.fetchone()
-
-        old_values = fault_audit_data(
-            fault
-        )
-
-        if not fault:
-
-            connection.close()
-
-            QMessageBox.warning(
-                self,
-                "تنبيه",
-                "العطل غير موجود."
+            cursor.execute(
+                "SELECT * FROM faults WHERE id = ?",
+                (fault_ids[0],)
             )
 
-            return
+            single_fault = cursor.fetchone()
+
+            if not single_fault:
+
+                connection.close()
+
+                QMessageBox.warning(
+                    self,
+                    "تنبيه",
+                    "العطل غير موجود."
+                )
+
+                return
+
+            msg = (
+                f"هل أنت متأكد من حذف العطل:\n\n"
+                f"{single_fault['fault_number']}؟\n\n"
+                "إذا كان قد تم صرف قطعة غيار له من المخزون، "
+                "سيتم إرجاع الكمية للمخزن تلقائيًا."
+            )
 
         answer = QMessageBox.question(
             self,
-            "تأكيد حذف العطل",
-            f"هل أنت متأكد من حذف العطل:\n\n"
-            f"{fault['fault_number']}؟\n\n"
-            "إذا كان قد تم صرف قطعة غيار له من المخزون، "
-            "سيتم إرجاع الكمية للمخزن تلقائيًا.",
+            "تأكيد الحذف",
+            msg,
             QMessageBox.Yes |
             QMessageBox.No,
             QMessageBox.No
@@ -4248,157 +4433,166 @@ class FaultsPage(QWidget):
 
             return
 
-        try:
+        deleted_count = 0
+        errors = []
 
-            cursor.execute(
-                """
-                SELECT TOP 1 id,
-                    spare_part_id,
-                    quantity
-                FROM spare_part_movements
-                WHERE movement_type = 'صرف'
-                  AND notes = ?
-                ORDER BY id DESC
-                """,
-                (
-                    f"صرف تلقائي لعطل "
-                    f"{fault['fault_number']}"
+        for fault_id in fault_ids:
+
+            try:
+
+                cursor.execute(
+                    "SELECT * FROM faults WHERE id = ?",
+                    (fault_id,)
                 )
-            )
 
-            movement = cursor.fetchone()
+                fault = cursor.fetchone()
 
-            old_values[
-                "linked_spare_part_movement"
-            ] = (
-                {
-                    "spare_part_id":
-                        movement["spare_part_id"],
-                    "quantity":
-                        movement["quantity"],
-                }
-                if movement
-                else None
-            )
+                if not fault:
+                    continue
 
-            if movement:
+                old_values = fault_audit_data(fault)
 
                 cursor.execute(
                     """
-                    UPDATE spare_parts
-                    SET
-                        quantity = quantity + ?,
-                        updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
+                    SELECT TOP 1 id,
+                        spare_part_id,
+                        quantity
+                    FROM spare_part_movements
+                    WHERE movement_type = 'صرف'
+                      AND notes = ?
+                    ORDER BY id DESC
                     """,
                     (
-                        movement["quantity"],
-                        movement["spare_part_id"]
+                        f"صرف تلقائي لعطل "
+                        f"{fault['fault_number']}",
                     )
+                )
+
+                movement = cursor.fetchone()
+
+                old_values[
+                    "linked_spare_part_movement"
+                ] = (
+                    {
+                        "spare_part_id":
+                            movement["spare_part_id"],
+                        "quantity":
+                            movement["quantity"],
+                    }
+                    if movement
+                    else None
+                )
+
+                if movement:
+
+                    cursor.execute(
+                        """
+                        UPDATE spare_parts
+                        SET
+                            quantity = quantity + ?,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                        """,
+                        (
+                            movement["quantity"],
+                            movement["spare_part_id"]
+                        )
+                    )
+
+                    if cursor.rowcount != 1:
+                        errors.append(
+                            f"العطل {fault['fault_number']}: "
+                            "تعذر إرجاع قطعة الغيار."
+                        )
+                        continue
+
+                    cursor.execute(
+                        """
+                        DELETE FROM spare_part_movements
+                        WHERE id = ?
+                        """,
+                        (movement["id"],)
+                    )
+
+                cursor.execute(
+                    """
+                    DELETE FROM fault_updates
+                    WHERE fault_id = ?
+                    """,
+                    (fault_id,)
+                )
+
+                cursor.execute(
+                    """
+                    DELETE FROM faults
+                    WHERE id = ?
+                    """,
+                    (fault_id,)
                 )
 
                 if cursor.rowcount != 1:
-
-                    connection.rollback()
-                    connection.close()
-
-                    QMessageBox.warning(
-                        self,
-                        "تنبيه",
-                        "تعذر إرجاع قطعة الغيار للمخزن، "
-                        "لذلك لم يتم حذف العطل."
+                    errors.append(
+                        f"العطل {fault['fault_number']}: "
+                        "تعذر الحذف."
                     )
+                    continue
 
-                    return
-
-                cursor.execute(
-                    """
-                    DELETE FROM spare_part_movements
-                    WHERE id = ?
-                    """,
-                    (
-                        movement["id"],
-                    )
+                write_audit_log(
+                    user=self.current_user,
+                    action="حذف",
+                    module_name="الأعطال",
+                    record_id=fault_id,
+                    description=(
+                        f"تم حذف العطل رقم "
+                        f"{fault['fault_number']}"
+                    ),
+                    old_values=old_values,
+                    new_values={
+                        "deleted": True,
+                        "stock_returned":
+                            bool(
+                                old_values.get(
+                                    "linked_spare_part_movement"
+                                )
+                            ),
+                    },
                 )
 
-            cursor.execute(
-                """
-                DELETE FROM fault_updates
-                WHERE fault_id = ?
-                """,
-                (
-                    fault_id,
-                )
-            )
+                deleted_count += 1
 
-            cursor.execute(
-                """
-                DELETE FROM faults
-                WHERE id = ?
-                """,
-                (
-                    fault_id,
-                )
-            )
+            except Exception as exc:
 
-            if cursor.rowcount != 1:
-
-                connection.rollback()
-                connection.close()
-
-                QMessageBox.warning(
-                    self,
-                    "تنبيه",
-                    "تعذر حذف العطل."
+                errors.append(
+                    f"خطأ في العطل {fault_id}: {exc}"
                 )
 
-                return
-
+        try:
             connection.commit()
-            connection.close()
-
-            write_audit_log(
-                user=self.current_user,
-                action="حذف",
-                module_name="الأعطال",
-                record_id=fault_id,
-                description=(
-                    f"تم حذف العطل رقم "
-                    f"{fault['fault_number']}"
-                ),
-                old_values=old_values,
-                new_values={
-                    "deleted": True,
-                    "stock_returned":
-                        bool(
-                            old_values.get(
-                                "linked_spare_part_movement"
-                            )
-                        ),
-                },
-            )
-
-            # مهم جدًا:
-            # بعد حذف آخر عطل من مبنى
-            # سيختفي المبنى من الفلتر
-            self.load_building_filter()
-
-            self.load_faults()
-
-            QMessageBox.information(
-                self,
-                "تم",
-                "تم حذف العطل وإرجاع قطعة الغيار "
-                "للمخزن إن وُجدت."
-            )
-
         except Exception as exc:
-
             connection.rollback()
-            connection.close()
-
             QMessageBox.critical(
                 self,
                 "خطأ",
-                f"حدث خطأ أثناء حذف العطل:\n{exc}"
+                f"حدث خطأ أثناء حفظ التغييرات:\n{exc}"
+            )
+            return
+        finally:
+            connection.close()
+
+        self.load_building_filter()
+        self.load_faults()
+
+        if errors:
+            QMessageBox.warning(
+                self,
+                "اكتمل مع أخطاء",
+                f"تم حذف {deleted_count} عطل بنجاح.\n\n"
+                "الأخطاء:\n" + "\n".join(errors)
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "تم",
+                f"تم حذف {deleted_count} عطل وإرجاع "
+                "قطع الغيار للمخزن إن وُجدت."
             )
