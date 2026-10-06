@@ -1079,7 +1079,6 @@ class FaultDialog(QDialog):
         monitor = device["monitor"] or "-"
         os_sys = device["operating_system"] or "-"
         loc = device["location"] or "-"
-        ip = device["ip_address"] or "-"
         b_name = device["building_name"] or "-"
         dev_type = device["device_type"] or "كمبيوتر"
 
@@ -1090,7 +1089,7 @@ class FaultDialog(QDialog):
                 f"🖨️  طراز الطابعة: {printer_display}\n"
                 f"🏢  المبنى / المكان: {b_name} | {loc}\n"
                 f"👤  المستخدم: {device['user_name'] or '-'}\n"
-                f"💻  الجهاز المرتبط: {dev_name} | IP: {ip}\n"
+                f"💻  الجهاز المرتبط: {dev_name}\n"
                 f"⚙️  نظام التشغيل: {os_sys}"
             )
         elif target == "both":
@@ -1101,7 +1100,7 @@ class FaultDialog(QDialog):
                 f"💻  الجهاز: {dev_name} ({dev_type})\n"
                 f"⚙️  المعالج: {processor} | RAM: {ram} | الهارد: {hard}\n"
                 f"🖥️  الشاشة: {monitor} | النظام: {os_sys}\n"
-                f"🏢  الموقع: {b_name} - {loc} | IP: {ip}"
+                f"🏢  الموقع: {b_name} - {loc}"
             )
         else:
             # في وضع الجهاز: تظهر مواصفات الجهاز أولاً
@@ -1110,7 +1109,7 @@ class FaultDialog(QDialog):
                 f"💻  الجهاز: {dev_name} (النوع: {dev_type})\n"
                 f"⚙️  المعالج: {processor} | RAM: {ram}\n"
                 f"💾  الهارد: {hard} | الشاشة: {monitor}\n"
-                f"💿  النظام: {os_sys} | IP: {ip}\n"
+                f"💿  النظام: {os_sys}\n"
                 f"🏢  المبنى / المكان: {b_name} - {loc}{printer_info}"
             )
 
