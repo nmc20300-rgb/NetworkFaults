@@ -768,7 +768,7 @@ class SparePartDialog(QDialog):
         header.setObjectName("dialogHeader")
         hl = QHBoxLayout(header)
         hl.setContentsMargins(16, 13, 16, 13)
-        icon = QLabel("🔧")
+        icon = QLabel("")
         icon.setObjectName("dialogHeaderIcon")
         icon.setAlignment(Qt.AlignCenter)
         icon.setFixedSize(42, 42)
