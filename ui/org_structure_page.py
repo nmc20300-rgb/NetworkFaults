@@ -1,39 +1,202 @@
-"""
-ui/org_structure_page.py
-========================
-شاشة إدارة الهيكل التنظيمي
-متاحة فقط لـ SUPER_ADMIN و ADMIN
-"""
+from __future__ import annotations
 
+from contextlib import contextmanager
+from pathlib import Path
+from string import Template
+
+from PySide6.QtCore import QSize, QStringListModel, Qt, QTimer, Signal
+from PySide6.QtGui import QColor, QFont, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
+    QAbstractItemView,
+    QComboBox,
+    QCompleter,
+    QDialog,
+    QFileDialog,
+    QFormLayout,
+    QFrame,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
+    QLineEdit,
+    QMenu,
+    QMessageBox,
     QPushButton,
     QTreeWidget,
     QTreeWidgetItem,
-    QHeaderView,
-    QDialog,
-    QFormLayout,
-    QLineEdit,
-    QComboBox,
-    QMessageBox,
-    QFrame,
-    QAbstractItemView,
+    QVBoxLayout,
+    QWidget,
     QWizard,
     QWizardPage,
-    QCompleter,
-    QFileDialog,
 )
-from PySide6.QtCore import Qt, QSize, QStringListModel, QTimer
-from PySide6.QtGui import QColor, QFont
-from pathlib import Path
+
 from database import get_connection, write_audit_log
+
+MODULE_NAME = "الهيكل التنظيمي"
+UNNAMED = "(بدون اسم)"
+UNIT_TYPES = ("فرع", "مبنى", "قسم", "مكتب")
+ROOT_ONLY_TYPES = frozenset({"فرع", "مبنى"})
+PARENT_CAPABLE_TYPES = frozenset({"فرع", "مبنى", "قسم"})
+NO_PARENT_LABEL = "— بدون وحدة أعلى —"
+
+TYPE_HINTS = {
+    "فرع": "الفرع وحدة رئيسية، ولا يحتاج إلى اختيار عنصر أعلى.",
+    "مبنى": "المبنى وحدة رئيسية، ولا يحتاج إلى اختيار عنصر أعلى.",
+    "قسم": "يمكن ربط القسم بفرع أو مبنى أو قسم أعلى.",
+    "مكتب": "يمكن ربط المكتب بفرع أو مبنى أو قسم.",
+}
+
+TYPE_COLORS = {
+    "فرع": ("#eff6ff", "#1e40af"),
+    "مبنى": ("#f0fdf4", "#166534"),
+    "قسم": ("#fefce8", "#854d0e"),
+    "مكتب": ("#fdf4ff", "#7e22ce"),
+}
+DEFAULT_TYPE_COLORS = ("#f8fafc", "#334155")
+
+COL_NAME, COL_TYPE, COL_COUNT, COL_ACTIONS = range(4)
+ROW_HEIGHT = 54
+TYPE_COLUMN_WIDTH = 130
+COUNT_COLUMN_WIDTH = 150
+ACTIONS_COLUMN_WIDTH = 190
+
+PALETTE = {
+    "bg": "#f4f7fb",
+    "surface": "#ffffff",
+    "border": "#e2e8f0",
+    "border_strong": "#cbd5e1",
+    "text": "#0f2338",
+    "body": "#334155",
+    "muted": "#64748b",
+    "faint": "#94a3b8",
+    "subtle": "#f1f5f9",
+    "hover": "#e2e8f0",
+    "field": "#fbfdff",
+    "accent": "#0891b2",
+    "accent_dark": "#0e7490",
+    "accent_soft": "#e0f2fe",
+    "accent_text": "#0369a1",
+    "row_alt": "#f8fafc",
+    "row_hover": "#f0f9ff",
+    "root_bg": "#fff7ed",
+    "root_fg": "#9a3412",
+    "success": "#166534",
+    "success_bg": "#ecfdf5",
+    "success_text": "#047857",
+    "danger": "#991b1b",
+    "danger_bg": "#fef2f2",
+    "danger_border": "#fecaca",
+    "danger_hover": "#fee2e2",
+    "edit_bg": "#eff6ff",
+    "edit_fg": "#1e40af",
+    "edit_border": "#bfdbfe",
+    "edit_hover": "#dbeafe",
+    "step_active_border": "#7dd3fc",
+}
+
+BASE_STYLE = """
+QLineEdit, QComboBox {
+    background: $field; border: 1px solid $border_strong;
+    border-radius: 8px; padding: 7px 10px; min-height: 22px; color: $text;
+}
+QLineEdit:focus, QComboBox:focus { border: 1.5px solid $accent; }
+QComboBox:disabled { background: $subtle; color: $faint; }
+QComboBox QAbstractItemView {
+    background: $surface; border: 1px solid $border_strong;
+    selection-background-color: $accent_soft; selection-color: $text; outline: none;
+}
+QToolTip {
+    background: $text; color: white; border: none; padding: 6px 9px; border-radius: 6px;
+}
+QPushButton#primaryButton {
+    background: $accent; color: white; border: none;
+    border-radius: 9px; padding: 9px 18px; font-weight: 700;
+}
+QPushButton#primaryButton:hover { background: $accent_dark; }
+QPushButton#primaryButton:disabled { background: $border_strong; }
+QPushButton#toolButton, QPushButton#clearButton {
+    background: $subtle; color: $body; border: 1px solid $border_strong;
+    border-radius: 8px; padding: 6px 12px; font-weight: 700;
+}
+QPushButton#toolButton:hover, QPushButton#clearButton:hover { background: $hover; }
+"""
+
+PAGE_STYLE = BASE_STYLE + """
+#orgPage { background: $bg; }
+#pageTitle { color: $text; font-size: 23px; font-weight: 800; }
+#pageSubtitle { color: $muted; font-size: 12px; }
+#filterCard, #treeCard, #metricCard {
+    background: $surface; border: 1px solid $border; border-radius: 12px;
+}
+#metricTitle { color: $muted; font-size: 11px; font-weight: 700; }
+#metricValue { font-size: 24px; font-weight: 800; }
+#fieldCaption { color: $muted; font-size: 11px; font-weight: 700; }
+#sectionTitle { color: $text; font-size: 14px; font-weight: 800; }
+#statsLabel { color: $muted; font-size: 11px; padding: 3px 6px; }
+#emptyTitle { color: $text; font-size: 16px; font-weight: 800; }
+#emptyHint { color: $muted; font-size: 12px; }
+QWidget#rootActionCell { background: $root_bg; border-radius: 6px; }
+QTreeWidget {
+    background: $surface; border: none; gridline-color: $subtle;
+    selection-background-color: $accent_soft; selection-color: $text;
+    alternate-background-color: $row_alt; outline: none;
+}
+QTreeWidget::item { padding: 3px 7px; border-bottom: 1px solid $subtle; }
+QTreeWidget::item:hover { background: $row_hover; }
+QHeaderView::section {
+    background: $row_alt; color: $text; padding: 10px 8px;
+    border: none; border-bottom: 2px solid $accent; font-weight: 700;
+}
+QLineEdit#quickSearch { min-width: 230px; background: $surface; }
+QPushButton#editBtn, QPushButton#deleteBtn {
+    border-radius: 7px; padding: 3px 10px; font-size: 11px; font-weight: 700; min-height: 30px;
+}
+QPushButton#editBtn { background: $edit_bg; color: $edit_fg; border: 1px solid $edit_border; }
+QPushButton#editBtn:hover { background: $edit_hover; }
+QPushButton#deleteBtn { background: $danger_bg; color: $danger; border: 1px solid $danger_border; }
+QPushButton#deleteBtn:hover { background: $danger_hover; }
+QMenu {
+    background: $surface; border: 1px solid $border_strong; border-radius: 8px; padding: 5px;
+}
+QMenu::item { padding: 7px 22px; border-radius: 6px; }
+QMenu::item:selected { background: $accent_soft; color: $text; }
+QMenu::separator { height: 1px; background: $border; margin: 4px 8px; }
+"""
+
+DIALOG_STYLE = BASE_STYLE + """
+QWizard { background: $bg; }
+QWizardPage { background: transparent; }
+QFrame#wizardCard {
+    background: $surface; border: 1px solid $border; border-radius: 12px;
+}
+QFrame#stepBar { background: transparent; }
+QLabel#stepItem {
+    background: $subtle; color: $muted; border-radius: 9px;
+    padding: 9px 12px; font-weight: 700;
+}
+QLabel#stepItem[stepState="active"] {
+    background: $accent_soft; color: $accent_text; border: 1px solid $step_active_border;
+}
+QLabel#stepItem[stepState="done"] { background: $success_bg; color: $success_text; }
+QLabel#fieldHint { color: $muted; font-size: 12px; }
+QLabel#fieldError { color: $danger; font-size: 12px; font-weight: 700; }
+QLabel#reviewValue { color: $text; font-weight: 700; }
+QWizard QPushButton {
+    background: $subtle; color: $text; border: 1px solid $border_strong;
+    border-radius: 8px; padding: 8px 18px; font-weight: 700; min-width: 88px;
+}
+QWizard QPushButton:hover { background: $hover; }
+QWizard QPushButton#primaryButton {
+    background: $accent; color: white; border: none;
+}
+QWizard QPushButton#primaryButton:hover { background: $accent_dark; }
+"""
+
+
+def build_style(template):
+    return Template(template).substitute(PALETTE)
 
 
 def org_unit_audit_data(unit, all_units=None):
-    """Build a readable, JSON-friendly snapshot of an organization unit."""
     if not unit:
         return {}
 
@@ -43,11 +206,7 @@ def org_unit_audit_data(unit, all_units=None):
         parent_name = "— (عنصر رئيسي)"
     elif not parent_name:
         parent = next(
-            (
-                candidate
-                for candidate in (all_units or [])
-                if candidate.get("id") == parent_id
-            ),
+            (item for item in (all_units or []) if item.get("id") == parent_id),
             None,
         )
         parent_name = parent.get("name") if parent else "غير معروف"
@@ -62,301 +221,566 @@ def org_unit_audit_data(unit, all_units=None):
     }
 
 
-# ─────────────────────────────────────────────────────────────
-# Dialog: Add / Edit Org Unit
-# ─────────────────────────────────────────────────────────────
+@contextmanager
+def db_cursor(commit=False):
+    conn = get_connection()
+    try:
+        yield conn.cursor()
+        if commit:
+            conn.commit()
+    except Exception:
+        if commit:
+            conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
-class _OrgUnitDetailsPage(QWizardPage):
-    def __init__(self, wizard):
-        super().__init__(wizard)
-        self.wizard = wizard
+class OrgUnitRepository:
+    @staticmethod
+    def fetch_all():
+        with db_cursor() as cursor:
+            cursor.execute("""
+                SELECT
+                    o.id, o.name, o.unit_type, o.parent_id, o.is_active,
+                    p.name AS parent_name
+                FROM dbo.org_units o
+                LEFT JOIN dbo.org_units p ON p.id = o.parent_id
+                ORDER BY o.sort_order, o.unit_type, o.name
+            """)
+            return [dict(row.items()) for row in cursor.fetchall()]
+
+    @staticmethod
+    def insert(data):
+        with db_cursor(commit=True) as cursor:
+            cursor.execute(
+                """
+                INSERT INTO dbo.org_units (name, unit_type, parent_id, is_active, sort_order)
+                VALUES (?, ?, ?, 1, 0)
+                """,
+                (data["name"], data["unit_type"], data["parent_id"]),
+            )
+            cursor.execute("SELECT CAST(SCOPE_IDENTITY() AS INT)")
+            row = cursor.fetchone()
+            return row[0] if row else None
+
+    @staticmethod
+    def update(unit_id, data):
+        with db_cursor(commit=True) as cursor:
+            cursor.execute(
+                """
+                UPDATE dbo.org_units
+                SET name = ?, unit_type = ?, parent_id = ?, updated_at = SYSDATETIME()
+                WHERE id = ?
+                """,
+                (data["name"], data["unit_type"], data["parent_id"], unit_id),
+            )
+
+    @staticmethod
+    def set_active(unit_id, active):
+        with db_cursor(commit=True) as cursor:
+            cursor.execute(
+                """
+                UPDATE dbo.org_units
+                SET is_active = ?, updated_at = SYSDATETIME()
+                WHERE id = ?
+                """,
+                (1 if active else 0, unit_id),
+            )
+
+    @staticmethod
+    def delete(unit_id):
+        with db_cursor(commit=True) as cursor:
+            cursor.execute("DELETE FROM dbo.org_units WHERE id = ?", (unit_id,))
+
+    @staticmethod
+    def usage_count(unit_id):
+        with db_cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT COUNT(*) FROM dbo.ink_transactions
+                WHERE org_unit_id = ? OR office_id = ?
+                """,
+                (unit_id, unit_id),
+            )
+            return cursor.fetchone()[0]
+
+    @staticmethod
+    def child_count(unit_id):
+        with db_cursor() as cursor:
+            cursor.execute(
+                "SELECT COUNT(*) FROM dbo.org_units WHERE parent_id = ?", (unit_id,)
+            )
+            return cursor.fetchone()[0]
+
+
+class OrgIndex:
+    def __init__(self, units):
+        self.units = list(units)
+        self.by_id = {unit["id"]: unit for unit in self.units}
+        self.children = {}
+        for unit in self.units:
+            self.children.setdefault(unit.get("parent_id"), []).append(unit["id"])
+        self._counts = {}
+
+    def is_root(self, unit):
+        return unit.get("parent_id") not in self.by_id
+
+    def parent_of(self, unit):
+        return self.by_id.get(unit.get("parent_id"))
+
+    def path_names(self, unit):
+        names, seen, current = [], set(), unit
+        while current and current["id"] not in seen:
+            seen.add(current["id"])
+            names.append(current.get("name") or UNNAMED)
+            current = self.by_id.get(current.get("parent_id"))
+        return names[::-1]
+
+    def path(self, unit):
+        return " / ".join(self.path_names(unit))
+
+    def descendants(self, unit_id):
+        found = set()
+        stack = list(self.children.get(unit_id, []))
+        while stack:
+            child_id = stack.pop()
+            if child_id in found or child_id == unit_id:
+                continue
+            found.add(child_id)
+            stack.extend(self.children.get(child_id, []))
+        return found
+
+    def descendant_count(self, unit_id):
+        if unit_id not in self._counts:
+            self._counts[unit_id] = len(self.descendants(unit_id))
+        return self._counts[unit_id]
+
+    def with_ancestors(self, unit_ids):
+        visible = set(unit_ids)
+        for unit_id in unit_ids:
+            current = self.by_id.get(unit_id)
+            seen = set()
+            while current:
+                parent_id = current.get("parent_id")
+                if parent_id not in self.by_id or parent_id in seen:
+                    break
+                seen.add(parent_id)
+                visible.add(parent_id)
+                current = self.by_id[parent_id]
+        return visible
+
+    def walk(self):
+        visited = set()
+        roots = [unit for unit in self.units if self.is_root(unit)]
+        for start in roots + self.units:
+            if start["id"] in visited:
+                continue
+            stack = [(start, 0)]
+            while stack:
+                unit, level = stack.pop()
+                if unit["id"] in visited:
+                    continue
+                visited.add(unit["id"])
+                yield unit, level
+                for child_id in reversed(self.children.get(unit["id"], [])):
+                    stack.append((self.by_id[child_id], level + 1))
+
+
+def confirm_action(parent, title, text, accept_text, icon=QMessageBox.Question):
+    box = QMessageBox(icon, title, text, QMessageBox.NoButton, parent)
+    box.setLayoutDirection(Qt.RightToLeft)
+    accept = box.addButton(accept_text, QMessageBox.AcceptRole)
+    cancel = box.addButton("إلغاء", QMessageBox.RejectRole)
+    box.setDefaultButton(cancel)
+    box.exec()
+    return box.clickedButton() is accept
+
+
+class Toast(QLabel):
+    STYLES = {
+        "success": ("#166534", "#14532d"),
+        "warning": ("#b45309", "#92400e"),
+        "error": ("#b91c1c", "#991b1b"),
+    }
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setAlignment(Qt.AlignCenter)
+        self.setWordWrap(True)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setContentsMargins(16, 9, 16, 9)
+        self.setMinimumHeight(42)
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self.hide)
+        self.hide()
+
+    def show_message(self, message, kind="success", duration_ms=3200):
+        background, border = self.STYLES.get(kind, self.STYLES["success"])
+        self.setStyleSheet(
+            f"QLabel {{ background: {background}; color: white; "
+            f"border: 1px solid {border}; border-radius: 11px; "
+            "font-size: 12px; font-weight: 700; padding: 9px 16px; }"
+        )
+        host = self.parentWidget()
+        max_width = max(200, min(520, host.width() - 32))
+        self.setMinimumWidth(min(240, max_width))
+        self.setMaximumWidth(max_width)
+        self.setText(message)
+        self.adjustSize()
+        x = max(16, (host.width() - self.width()) // 2)
+        y = max(16, host.height() - self.height() - 24)
+        self.move(x, y)
+        self.show()
+        self.raise_()
+        self._timer.start(duration_ms)
+
+
+class MetricCard(QFrame):
+    def __init__(self, title, accent, parent=None):
+        super().__init__(parent)
+        self.setObjectName("metricCard")
+        self.setStyleSheet(
+            f"QFrame#metricCard {{ border-right: 4px solid {accent}; }}"
+        )
+        box = QVBoxLayout(self)
+        box.setContentsMargins(15, 11, 15, 11)
+        box.setSpacing(3)
+        caption = QLabel(title)
+        caption.setObjectName("metricTitle")
+        self._value = QLabel("0")
+        self._value.setObjectName("metricValue")
+        self._value.setStyleSheet(f"color: {accent};")
+        box.addWidget(caption)
+        box.addWidget(self._value)
+
+    def set_value(self, value):
+        self._value.setText(str(value))
+
+
+class TypeBadge(QWidget):
+    def __init__(self, unit_type, parent=None):
+        super().__init__(parent)
+        background, foreground = TYPE_COLORS.get(unit_type, DEFAULT_TYPE_COLORS)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setAlignment(Qt.AlignCenter)
+        label = QLabel(unit_type or "—")
+        label.setAlignment(Qt.AlignCenter)
+        label.setFixedSize(84, 28)
+        label.setStyleSheet(
+            f"background: {background}; color: {foreground}; "
+            "border-radius: 14px; font-size: 12px; font-weight: 700;"
+        )
+        layout.addWidget(label)
+
+
+class RowActions(QWidget):
+    edit_requested = Signal()
+    delete_requested = Signal()
+
+    def __init__(self, is_root=False, parent=None):
+        super().__init__(parent)
+        if is_root:
+            self.setObjectName("rootActionCell")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setMinimumHeight(ROW_HEIGHT - 6)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(5, 4, 5, 4)
+        layout.setSpacing(8)
+
+        edit_button = self._make_button("تعديل", "editBtn", "تعديل الوحدة")
+        edit_button.clicked.connect(self.edit_requested.emit)
+        delete_button = self._make_button("حذف", "deleteBtn", "حذف الوحدة")
+        delete_button.clicked.connect(self.delete_requested.emit)
+        layout.addStretch()
+        layout.addWidget(edit_button)
+        layout.addWidget(delete_button)
+        layout.addStretch()
+
+    @staticmethod
+    def _make_button(text, object_name, tooltip):
+        button = QPushButton(text)
+        button.setObjectName(object_name)
+        button.setToolTip(tooltip)
+        button.setCursor(Qt.PointingHandCursor)
+        button.setFixedSize(72, 32)
+        return button
+
+
+class StepIndicator(QFrame):
+    def __init__(self, steps, active, parent=None):
+        super().__init__(parent)
+        self.setObjectName("stepBar")
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 4, 0, 10)
+        row.setSpacing(8)
+        for index, title in enumerate(steps):
+            if index < active:
+                state = "done"
+            elif index == active:
+                state = "active"
+            else:
+                state = "pending"
+            label = QLabel(f"{index + 1}  {title}")
+            label.setObjectName("stepItem")
+            label.setProperty("stepState", state)
+            label.setAlignment(Qt.AlignCenter)
+            row.addWidget(label, 1)
+
+
+class _WizardStep(QWizardPage):
+    def __init__(self, index, steps, title, subtitle, validator=None):
+        super().__init__()
+        self._validator = validator
+        self.setTitle(title)
+        self.setSubTitle(subtitle)
+        self.body = QVBoxLayout(self)
+        self.body.setContentsMargins(8, 8, 8, 8)
+        self.body.setSpacing(12)
+        self.body.addWidget(StepIndicator(steps, index))
 
     def validatePage(self):
-        if not self.wizard.name_input.text().strip():
-            QMessageBox.warning(
-                self,
-                "تحقق من البيانات",
-                "اكتب اسم الوحدة قبل الانتقال للخطوة التالية.",
-            )
-            self.wizard.name_input.setFocus()
-            return False
-        return True
+        return self._validator() if self._validator else True
 
 
 class OrgUnitDialog(QWizard):
-    UNIT_TYPES = ["فرع", "مبنى", "قسم", "مكتب"]
-    STEP_NAMES = ["نوع الوحدة", "البيانات", "مراجعة"]
+    STEP_NAMES = ("نوع الوحدة", "البيانات", "مراجعة")
 
-    def __init__(self, parent=None, unit=None, all_units=None):
+    def __init__(self, parent=None, unit=None, all_units=None, default_parent_id=None):
         super().__init__(parent)
         self.unit = unit
-        self.all_units = all_units or []
+        self.index = OrgIndex(all_units or [])
         is_edit = unit is not None
 
         self.setWindowTitle(
             "تعديل عنصر في الهيكل" if is_edit else "إضافة عنصر للهيكل التنظيمي"
         )
-        self.setMinimumSize(620, 560)
-        self.resize(720, 610)
+        self.setMinimumSize(620, 540)
+        self.resize(700, 580)
         self.setLayoutDirection(Qt.RightToLeft)
         self.setWizardStyle(QWizard.ModernStyle)
         self.setOption(QWizard.NoBackButtonOnStartPage, True)
         self.setButtonText(QWizard.BackButton, "السابق")
         self.setButtonText(QWizard.NextButton, "التالي")
         self.setButtonText(QWizard.CancelButton, "إلغاء")
-        self.setButtonText(QWizard.FinishButton, "حفظ العنصر")
+        self.setButtonText(
+            QWizard.FinishButton, "حفظ التعديلات" if is_edit else "حفظ العنصر"
+        )
 
-        self._build_pages(is_edit)
-        self._populate_parent_combo()
+        self._build_type_page()
+        self._build_details_page()
+        self._build_review_page()
+        self.setStyleSheet(build_style(DIALOG_STYLE))
+        self.button(QWizard.FinishButton).setObjectName("primaryButton")
 
-        if is_edit:
-            self._load_unit()
-
-        self.currentIdChanged.connect(self._update_review)
         self.type_combo.currentTextChanged.connect(self._on_type_changed)
-        self.name_input.textChanged.connect(self._update_review)
-        self.parent_combo.currentTextChanged.connect(self._update_review)
-        self._update_review()
+        self.name_input.textChanged.connect(self._on_name_changed)
+        self.parent_combo.currentIndexChanged.connect(self._refresh_review)
+        self.currentIdChanged.connect(self._refresh_review)
 
-        self.setStyleSheet("""
-            QWizard { background: #f4f7fb; }
-            QWizardPage { background: transparent; }
-            QLabel#dialogTitle { color: #0f2338; font-size: 19px; font-weight: 800; }
-            QLabel#dialogHint { color: #64748b; font-size: 12px; }
-            QFrame#wizardCard {
-                background: white; border: 1px solid #e2e8f0; border-radius: 12px;
-            }
-            QFrame#stepBar { background: transparent; }
-            QLabel#stepItem {
-                background: #eef2f7; color: #64748b; border-radius: 9px;
-                padding: 9px 12px; font-weight: 700;
-            }
-            QLabel#stepItem[stepState="active"] {
-                background: #e0f2fe; color: #0369a1; border: 1px solid #7dd3fc;
-            }
-            QLabel#stepItem[stepState="done"] {
-                background: #ecfdf5; color: #047857;
-            }
-            QLineEdit, QComboBox {
-                background: #fbfdff; border: 1px solid #cbd5e1;
-                border-radius: 8px; padding: 8px 10px; min-height: 24px;
-            }
-            QLineEdit:focus, QComboBox:focus { border: 1.5px solid #0891b2; }
-            QWizard QPushButton {
-                background: #f1f5f9; color: #0f2338; border: 1px solid #cbd5e1;
-                border-radius: 8px; padding: 8px 18px; font-weight: 700; min-width: 88px;
-            }
-            QWizard QPushButton:hover { background: #e2e8f0; }
-        """)
+        self._apply_initial_state(default_parent_id)
+        if is_edit:
+            self.setStartId(self.details_page_id)
 
-    def _build_stepper(self, active_step):
-        bar = QFrame()
-        bar.setObjectName("stepBar")
-        row = QHBoxLayout(bar)
-        row.setContentsMargins(0, 4, 0, 10)
-        row.setSpacing(8)
-        for index, title in enumerate(self.STEP_NAMES):
-            state = (
-                "done"
-                if index < active_step
-                else "active" if index == active_step else ""
-            )
-            label = QLabel(f"{index + 1}  {title}")
-            label.setObjectName("stepItem")
-            label.setProperty("stepState", state)
-            label.setAlignment(Qt.AlignCenter)
-            row.addWidget(label, 1)
-        return bar
-
-    def _make_page_heading(self, title, hint):
-        box = QVBoxLayout()
-        title_label = QLabel(title)
-        title_label.setObjectName("dialogTitle")
-        hint_label = QLabel(hint)
-        hint_label.setObjectName("dialogHint")
-        box.addWidget(title_label)
-        box.addWidget(hint_label)
-        return box
-
-    def _build_pages(self, is_edit):
-        # Step 1 — choose the organizational unit type.
-        type_page = QWizardPage()
-        type_page.setTitle("نوع الوحدة")
-        type_page.setSubTitle("ابدأ بتحديد نوع العنصر الذي تريد إضافته.")
-        type_layout = QVBoxLayout(type_page)
-        type_layout.setContentsMargins(8, 8, 8, 8)
-        type_layout.addWidget(self._build_stepper(0))
-        type_layout.addLayout(
-            self._make_page_heading(
-                "ما نوع الوحدة؟",
-                "اختيار النوع يحدد مكان الوحدة في الهيكل والجهة التي يمكن أن تتبع لها.",
-            )
+    def _build_type_page(self):
+        page = _WizardStep(
+            0, self.STEP_NAMES, "نوع الوحدة", "ابدأ بتحديد نوع العنصر الذي تريد إضافته."
         )
-
-        type_card = QFrame()
-        type_card.setObjectName("wizardCard")
-        card_layout = QVBoxLayout(type_card)
-        card_layout.setContentsMargins(20, 18, 20, 18)
-        card_layout.setSpacing(12)
-        card_layout.addWidget(QLabel("نوع العنصر التنظيمي *"))
+        card = QFrame()
+        card.setObjectName("wizardCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(12)
+        layout.addWidget(QLabel("نوع العنصر التنظيمي *"))
         self.type_combo = QComboBox()
-        self.type_combo.addItems(self.UNIT_TYPES)
+        self.type_combo.addItems(UNIT_TYPES)
         self.type_combo.setMinimumHeight(42)
-        card_layout.addWidget(self.type_combo)
+        layout.addWidget(self.type_combo)
         self.type_hint = QLabel()
-        self.type_hint.setObjectName("dialogHint")
+        self.type_hint.setObjectName("fieldHint")
         self.type_hint.setWordWrap(True)
-        card_layout.addWidget(self.type_hint)
-        card_layout.addStretch()
-        type_layout.addWidget(type_card, 1)
-        self.type_page_id = self.addPage(type_page)
+        layout.addWidget(self.type_hint)
+        layout.addStretch()
+        page.body.addWidget(card, 1)
+        self.type_page_id = self.addPage(page)
 
-        # Step 2 — enter the unit name and parent.
-        self.details_page = _OrgUnitDetailsPage(self)
-        self.details_page.setTitle("بيانات الوحدة")
-        self.details_page.setSubTitle("أدخل الاسم وحدد موقع الوحدة ضمن الهيكل.")
-        details_layout = QVBoxLayout(self.details_page)
-        details_layout.setContentsMargins(8, 8, 8, 8)
-        details_layout.addWidget(self._build_stepper(1))
-        details_layout.addLayout(
-            self._make_page_heading(
-                "أكمل البيانات الأساسية",
-                "يمكنك الرجوع للخطوة السابقة لتغيير نوع الوحدة.",
-            )
+    def _build_details_page(self):
+        page = _WizardStep(
+            1,
+            self.STEP_NAMES,
+            "بيانات الوحدة",
+            "أدخل الاسم وحدد موقع الوحدة ضمن الهيكل.",
+            validator=self._validate_details,
         )
-
-        details_card = QFrame()
-        details_card.setObjectName("wizardCard")
-        form = QFormLayout(details_card)
+        card = QFrame()
+        card.setObjectName("wizardCard")
+        form = QFormLayout(card)
         form.setContentsMargins(20, 20, 20, 20)
         form.setHorizontalSpacing(16)
-        form.setVerticalSpacing(16)
+        form.setVerticalSpacing(14)
         form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
         self.name_input = QLineEdit()
         self.name_input.setPlaceholderText("مثال: فرع وسط البلد")
         self.name_input.setMinimumHeight(42)
+        self.name_input.setClearButtonEnabled(True)
+        self.name_error = QLabel()
+        self.name_error.setObjectName("fieldError")
+        self.name_error.setWordWrap(True)
+        self.name_error.hide()
+
         self.parent_combo = QComboBox()
         self.parent_combo.setMinimumHeight(42)
+        self.parent_combo.setMaxVisibleItems(12)
+
         form.addRow("اسم الوحدة *", self.name_input)
+        form.addRow("", self.name_error)
         form.addRow("تابعة إلى", self.parent_combo)
-        details_layout.addWidget(details_card)
-        details_layout.addStretch()
-        self.details_page_id = self.addPage(self.details_page)
+        page.body.addWidget(card)
+        page.body.addStretch()
+        self.details_page = page
+        self.details_page_id = self.addPage(page)
 
-        # Step 3 — review before saving.
-        review_page = QWizardPage()
-        review_page.setTitle("مراجعة وحفظ")
-        review_page.setSubTitle("تأكد من البيانات قبل إضافتها إلى الهيكل.")
-        review_layout = QVBoxLayout(review_page)
-        review_layout.setContentsMargins(8, 8, 8, 8)
-        review_layout.addWidget(self._build_stepper(2))
-        review_layout.addLayout(
-            self._make_page_heading(
-                "راجع ملخص الوحدة",
-                "إذا احتجت إلى تعديل أي معلومة، ارجع إلى الخطوة المناسبة.",
-            )
+    def _build_review_page(self):
+        page = _WizardStep(
+            2,
+            self.STEP_NAMES,
+            "مراجعة وحفظ",
+            "تأكد من البيانات قبل حفظها في الهيكل.",
         )
-
-        review_card = QFrame()
-        review_card.setObjectName("wizardCard")
-        review_form = QFormLayout(review_card)
-        review_form.setContentsMargins(20, 20, 20, 20)
-        review_form.setHorizontalSpacing(16)
-        review_form.setVerticalSpacing(16)
+        card = QFrame()
+        card.setObjectName("wizardCard")
+        form = QFormLayout(card)
+        form.setContentsMargins(20, 20, 20, 20)
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(14)
         self.review_name = QLabel("—")
         self.review_type = QLabel("—")
         self.review_parent = QLabel("—")
-        for label in (self.review_name, self.review_type, self.review_parent):
-            label.setStyleSheet("font-weight: 700; color: #0f2338;")
+        self.review_path = QLabel("—")
+        for label in (
+            self.review_name,
+            self.review_type,
+            self.review_parent,
+            self.review_path,
+        ):
+            label.setObjectName("reviewValue")
             label.setWordWrap(True)
-        review_form.addRow("اسم الوحدة", self.review_name)
-        review_form.addRow("النوع", self.review_type)
-        review_form.addRow("تابعة إلى", self.review_parent)
-        review_layout.addWidget(review_card)
-        review_layout.addStretch()
-        self.review_page_id = self.addPage(review_page)
+        form.addRow("اسم الوحدة", self.review_name)
+        form.addRow("النوع", self.review_type)
+        form.addRow("تابعة إلى", self.review_parent)
+        form.addRow("المسار الناتج", self.review_path)
+        page.body.addWidget(card)
+        page.body.addStretch()
+        self.review_page_id = self.addPage(page)
 
-    def _parent_label_for_id(self, parent_id):
-        if parent_id is None:
-            return "بدون وحدة أعلى (عنصر رئيسي)"
-        for unit in self.all_units:
-            if unit["id"] == parent_id:
-                return f"{unit['name']} — {unit['unit_type']}"
-        return "بدون وحدة أعلى"
-
-    def _update_review(self, *_args):
-        if not hasattr(self, "type_combo"):
-            return
-        unit_type = self.type_combo.currentText()
-        hints = {
-            "فرع": "الفرع وحدة رئيسية، ولا يحتاج إلى اختيار عنصر أعلى.",
-            "مبنى": "المبنى وحدة رئيسية، ولا يحتاج إلى اختيار عنصر أعلى.",
-            "قسم": "يمكن ربط القسم بفرع أو مبنى أو قسم أعلى.",
-            "مكتب": "يمكن ربط المكتب بفرع أو مبنى أو قسم.",
-        }
-        self.type_hint.setText(hints.get(unit_type, ""))
-        self.review_name.setText(self.name_input.text().strip() or "—")
-        self.review_type.setText(unit_type or "—")
-        self.review_parent.setText(
-            self._parent_label_for_id(self.parent_combo.currentData())
-        )
-
-    def _populate_parent_combo(self):
-        if not hasattr(self, "parent_combo"):
-            return
-        previous_parent = self.parent_combo.currentData()
-        self.parent_combo.clear()
-        self.parent_combo.addItem("— بدون وحدة أعلى —", None)
-        current_type = self.type_combo.currentText()
-
-        if current_type in ("فرع", "مبنى"):
-            self.parent_combo.setEnabled(False)
-            return
-
-        self.parent_combo.setEnabled(True)
-        exclude_ids = set()
+    def _apply_initial_state(self, default_parent_id):
         if self.unit:
-            exclude_ids.add(self.unit["id"])
-            children = {}
-            for unit in self.all_units:
-                children.setdefault(unit.get("parent_id"), []).append(unit["id"])
-            stack = list(children.get(self.unit["id"], []))
-            while stack:
-                child_id = stack.pop()
-                if child_id in exclude_ids:
-                    continue
-                exclude_ids.add(child_id)
-                stack.extend(children.get(child_id, []))
+            self.name_input.setText(self.unit.get("name") or "")
+            self._select_type(self.unit.get("unit_type"))
+            self._populate_parent_combo(self.unit.get("parent_id"))
+        elif default_parent_id is not None:
+            self._select_type("قسم")
+            self._populate_parent_combo(default_parent_id)
+        else:
+            self._populate_parent_combo()
+        self._refresh_review()
 
-        for unit in self.all_units:
-            if unit["id"] in exclude_ids:
-                continue
-            if unit["unit_type"] in ("فرع", "مبنى", "قسم"):
+    def _select_type(self, unit_type):
+        index = self.type_combo.findText(unit_type or "")
+        if index >= 0:
+            self.type_combo.setCurrentIndex(index)
+
+    def _populate_parent_combo(self, selected_id=None):
+        previous = selected_id if selected_id is not None else self.parent_combo.currentData()
+        self.parent_combo.blockSignals(True)
+        self.parent_combo.clear()
+        self.parent_combo.addItem(NO_PARENT_LABEL, None)
+
+        allows_parent = self.type_combo.currentText() not in ROOT_ONLY_TYPES
+        self.parent_combo.setEnabled(allows_parent)
+        if allows_parent:
+            excluded = set()
+            if self.unit:
+                excluded = {self.unit["id"]} | self.index.descendants(self.unit["id"])
+            candidates = sorted(
+                (
+                    unit
+                    for unit in self.index.units
+                    if unit["id"] not in excluded
+                    and unit.get("unit_type") in PARENT_CAPABLE_TYPES
+                ),
+                key=self.index.path,
+            )
+            for candidate in candidates:
                 self.parent_combo.addItem(
-                    f"[{unit['unit_type']}]  {unit['name']}",
-                    unit["id"],
+                    f"[{candidate['unit_type']}]  {self.index.path(candidate)}",
+                    candidate["id"],
                 )
-
-        idx = self.parent_combo.findData(previous_parent)
-        if idx >= 0:
-            self.parent_combo.setCurrentIndex(idx)
+            position = self.parent_combo.findData(previous)
+            if position >= 0:
+                self.parent_combo.setCurrentIndex(position)
+        self.parent_combo.blockSignals(False)
 
     def _on_type_changed(self, _unit_type):
         self._populate_parent_combo()
-        self._update_review()
+        self._refresh_review()
 
-    def _load_unit(self):
-        unit = self.unit
-        self.name_input.setText(unit.get("name") or "")
-        idx = self.type_combo.findText(unit.get("unit_type") or "")
-        if idx >= 0:
-            self.type_combo.setCurrentIndex(idx)
-        self._populate_parent_combo()
-        parent_idx = self.parent_combo.findData(unit.get("parent_id"))
-        if parent_idx >= 0:
-            self.parent_combo.setCurrentIndex(parent_idx)
-        self._update_review()
+    def _on_name_changed(self, _text):
+        self.name_error.hide()
+        self._refresh_review()
+
+    def _selected_parent(self):
+        return self.index.by_id.get(self.parent_combo.currentData())
+
+    def _is_duplicate(self, name):
+        own_id = self.unit["id"] if self.unit else None
+        unit_type = self.type_combo.currentText()
+        parent_id = self.parent_combo.currentData()
+        folded = name.casefold()
+        return any(
+            unit["id"] != own_id
+            and unit.get("unit_type") == unit_type
+            and unit.get("parent_id") == parent_id
+            and (unit.get("name") or "").strip().casefold() == folded
+            for unit in self.index.units
+        )
+
+    def _validate_details(self):
+        name = self.name_input.text().strip()
+        error = ""
+        if not name:
+            error = "اكتب اسم الوحدة قبل المتابعة."
+        elif self._is_duplicate(name):
+            error = "توجد وحدة بنفس الاسم والنوع تحت نفس الوحدة الأعلى."
+        if error:
+            self.name_error.setText(error)
+            self.name_error.show()
+            self.name_input.setFocus()
+            return False
+        return True
+
+    def _resulting_path(self):
+        name = self.name_input.text().strip()
+        if not name:
+            return "—"
+        parent = self._selected_parent()
+        return f"{self.index.path(parent)} / {name}" if parent else name
+
+    def _refresh_review(self, *_args):
+        unit_type = self.type_combo.currentText()
+        parent = self._selected_parent()
+        self.type_hint.setText(TYPE_HINTS.get(unit_type, ""))
+        self.review_name.setText(self.name_input.text().strip() or "—")
+        self.review_type.setText(unit_type or "—")
+        self.review_parent.setText(
+            f"{parent.get('name')} — {parent.get('unit_type')}"
+            if parent
+            else "بدون وحدة أعلى (عنصر رئيسي)"
+        )
+        self.review_path.setText(self._resulting_path())
 
     def get_data(self):
         return {
@@ -366,88 +790,201 @@ class OrgUnitDialog(QWizard):
         }
 
 
-# ─────────────────────────────────────────────────────────────
-# OrgStructurePage
-# ─────────────────────────────────────────────────────────────
+EXPORT_HEADERS = (
+    "المستوى",
+    "الوحدة التنظيمية",
+    "النوع",
+    "الحالة",
+    "عدد التابعين",
+    "المسار الكامل",
+)
+EXPORT_WIDTHS = (10, 38, 16, 14, 14, 64)
+EXPORT_RIGHT_ALIGNED = (2, 6)
+
+
+def export_hierarchy_to_excel(file_path, rows):
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.properties import PageSetupProperties
+
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = MODULE_NAME
+    sheet.sheet_view.rightToLeft = True
+    sheet.sheet_view.showGridLines = False
+    sheet.sheet_view.zoomScale = 90
+
+    last_column = get_column_letter(len(EXPORT_HEADERS))
+    centered = Alignment(horizontal="center", vertical="center")
+
+    sheet.merge_cells(f"A1:{last_column}1")
+    title = sheet["A1"]
+    title.value = MODULE_NAME
+    title.font = Font(name="Arial", size=16, bold=True, color="FFFFFF")
+    title.fill = PatternFill("solid", fgColor="10263D")
+    title.alignment = centered
+
+    sheet.merge_cells(f"A2:{last_column}2")
+    total = sheet["A2"]
+    total.value = f"إجمالي الوحدات: {len(rows)}"
+    total.font = Font(name="Arial", size=11, bold=True, color="64748B")
+    total.alignment = centered
+
+    header_row = 3
+    for column, value in enumerate(EXPORT_HEADERS, 1):
+        cell = sheet.cell(header_row, column, value)
+        cell.font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1095B0")
+        cell.alignment = centered
+
+    border = Border(bottom=Side(style="thin", color="D9DEE5"))
+    root_fill = PatternFill("solid", fgColor="FFF7E8")
+    for row_index, data in enumerate(rows, header_row + 1):
+        is_root = data["level"] == 0
+        name = f"{data['name']} — وحدة رئيسية" if is_root else data["name"]
+        values = (
+            data["level"],
+            name,
+            data["unit_type"],
+            data["status"],
+            data["descendants"],
+            data["path"],
+        )
+        for column, value in enumerate(values, 1):
+            cell = sheet.cell(row_index, column, value)
+            cell.font = Font(
+                name="Arial",
+                size=10,
+                bold=is_root,
+                color="9A4D18" if is_root else "334155",
+            )
+            cell.alignment = Alignment(
+                horizontal="right" if column in EXPORT_RIGHT_ALIGNED else "center",
+                vertical="center",
+                wrap_text=column == len(EXPORT_HEADERS),
+                indent=min(data["level"] * 2, 15) if column == 2 else 0,
+            )
+            cell.border = border
+            if is_root:
+                cell.fill = root_fill
+        sheet.row_dimensions[row_index].height = 24
+        sheet.row_dimensions[row_index].outlineLevel = min(data["level"], 7)
+
+    for column, width in enumerate(EXPORT_WIDTHS, 1):
+        sheet.column_dimensions[get_column_letter(column)].width = width
+    sheet.row_dimensions[1].height = 32
+    sheet.row_dimensions[2].height = 24
+    sheet.row_dimensions[header_row].height = 28
+    sheet.freeze_panes = f"A{header_row + 1}"
+    sheet.auto_filter.ref = f"A{header_row}:{last_column}{header_row + len(rows)}"
+    sheet.sheet_properties.outlinePr.summaryBelow = True
+    sheet.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+    sheet.page_setup.orientation = "landscape"
+    sheet.page_setup.paperSize = sheet.PAPERSIZE_A4
+    sheet.page_setup.fitToWidth = 1
+    sheet.page_setup.fitToHeight = 0
+    sheet.print_title_rows = f"1:{header_row}"
+
+    workbook.save(file_path)
+    workbook.close()
 
 
 class OrgStructurePage(QWidget):
     def __init__(self, current_user=None, parent=None):
         super().__init__(parent)
         self.current_user = current_user or {}
+        self._units = []
+        self._index = OrgIndex([])
+        self._items = {}
         self._quick_label_to_id = {}
         self._quick_label_by_id = {}
-        self._tree_items_by_id = {}
         self.setLayoutDirection(Qt.RightToLeft)
         self.setObjectName("orgPage")
         self._build_ui()
-        self.load_units()
-
-    # ─────────────── UI ─────────────────────────────────────
+        self._bind_shortcuts()
+        self.reload()
 
     def _build_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(26, 22, 26, 22)
-        layout.setSpacing(14)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(26, 22, 26, 22)
+        root.setSpacing(14)
+        root.addLayout(self._build_header())
+        root.addLayout(self._build_metrics())
+        root.addWidget(self._build_filters())
+        root.addWidget(self._build_tree_card(), 1)
+        self.setStyleSheet(build_style(PAGE_STYLE))
+        self._toast = Toast(self)
 
-        # Page heading and primary action.
-        title_row = QHBoxLayout()
-        title_box = QVBoxLayout()
-        title_box.setSpacing(3)
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(220)
+        self._search_timer.timeout.connect(self._render)
+
+    def _build_header(self):
+        row = QHBoxLayout()
+        titles = QVBoxLayout()
+        titles.setSpacing(3)
         title = QLabel("إدارة الهيكل التنظيمي")
         title.setObjectName("pageTitle")
         subtitle = QLabel("استكشف الفروع والمباني والأقسام والمكاتب في عرض هرمي واضح")
         subtitle.setObjectName("pageSubtitle")
-        title_box.addWidget(title)
-        title_box.addWidget(subtitle)
-        title_row.addLayout(title_box)
-        title_row.addStretch()
+        titles.addWidget(title)
+        titles.addWidget(subtitle)
+        row.addLayout(titles)
+        row.addStretch()
 
         self.btn_export = QPushButton("تصدير إلى Excel")
         self.btn_export.setObjectName("toolButton")
-        self.btn_export.setMinimumHeight(42)
-        self.btn_export.setCursor(Qt.PointingHandCursor)
+        self.btn_export.setToolTip("تصدير الهيكل بالكامل إلى ملف Excel")
         self.btn_export.clicked.connect(self._export_excel)
-        title_row.addWidget(self.btn_export)
 
         self.btn_add = QPushButton("＋  إضافة وحدة")
         self.btn_add.setObjectName("primaryButton")
-        self.btn_add.setMinimumHeight(42)
-        self.btn_add.setCursor(Qt.PointingHandCursor)
-        self.btn_add.clicked.connect(self._add_unit)
-        title_row.addWidget(self.btn_add)
-        layout.addLayout(title_row)
+        self.btn_add.setToolTip("إضافة وحدة جديدة (Ctrl+N)")
+        self.btn_add.clicked.connect(lambda: self._add_unit())
 
-        # Compact overview cards.
-        metrics = QHBoxLayout()
-        metrics.setSpacing(10)
-        self.metric_total = self._metric_card("إجمالي الوحدات", "0")
-        self.metric_active = self._metric_card("وحدات نشطة", "0")
-        self.metric_inactive = self._metric_card("وحدات معطلة", "0")
-        metrics.addWidget(self.metric_total[0], 1)
-        metrics.addWidget(self.metric_active[0], 1)
-        metrics.addWidget(self.metric_inactive[0], 1)
-        layout.addLayout(metrics)
+        for button in (self.btn_export, self.btn_add):
+            button.setMinimumHeight(42)
+            button.setCursor(Qt.PointingHandCursor)
+            row.addWidget(button)
+        return row
 
-        # Search and filters in one calm toolbar.
-        filter_card = QFrame()
-        filter_card.setObjectName("filterCard")
-        filter_row = QHBoxLayout(filter_card)
-        filter_row.setContentsMargins(14, 12, 14, 12)
-        filter_row.setSpacing(10)
+    def _build_metrics(self):
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        self.metric_total = MetricCard("إجمالي الوحدات", PALETTE["accent"])
+        self.metric_roots = MetricCard("وحدات رئيسية", PALETTE["root_fg"])
+        self.metric_active = MetricCard("وحدات نشطة", PALETTE["success"])
+        self.metric_inactive = MetricCard("وحدات معطلة", PALETTE["danger"])
+        for card in (
+            self.metric_total,
+            self.metric_roots,
+            self.metric_active,
+            self.metric_inactive,
+        ):
+            row.addWidget(card, 1)
+        return row
+
+    def _build_filters(self):
+        card = QFrame()
+        card.setObjectName("filterCard")
+        row = QHBoxLayout(card)
+        row.setContentsMargins(14, 12, 14, 12)
+        row.setSpacing(10)
 
         self.search_input = QLineEdit()
-        self.search_input.setObjectName("searchBox")
         self.search_input.setPlaceholderText("ابحث باسم الفرع أو الوحدة...")
+        self.search_input.setClearButtonEnabled(True)
         self.search_input.setMinimumHeight(38)
-        self.search_input.textChanged.connect(self.load_units)
+        self.search_input.textChanged.connect(lambda _text: self._search_timer.start())
 
         self.filter_type = QComboBox()
         self.filter_type.addItem("كل الأنواع", "")
-        for unit_type in ("فرع", "مبنى", "قسم", "مكتب"):
+        for unit_type in UNIT_TYPES:
             self.filter_type.addItem(unit_type, unit_type)
         self.filter_type.setMinimumHeight(38)
-        self.filter_type.currentIndexChanged.connect(self.load_units)
+        self.filter_type.currentIndexChanged.connect(lambda _index: self._render())
 
         self.filter_status = QComboBox()
         self.filter_status.addItem("كل الحالات", "")
@@ -455,78 +992,38 @@ class OrgStructurePage(QWidget):
         self.filter_status.addItem("غير نشط فقط", "0")
         self.filter_status.setCurrentIndex(1)
         self.filter_status.setMinimumHeight(38)
-        self.filter_status.currentIndexChanged.connect(self.load_units)
+        self.filter_status.currentIndexChanged.connect(lambda _index: self._render())
 
         clear_button = QPushButton("مسح الفلاتر")
         clear_button.setObjectName("clearButton")
         clear_button.setMinimumHeight(38)
-        clear_button.clicked.connect(self._clear_filters)
+        clear_button.setCursor(Qt.PointingHandCursor)
+        clear_button.clicked.connect(lambda: self._set_filters())
 
-        filter_row.addWidget(QLabel("بحث"))
-        filter_row.addWidget(self.search_input, 1)
-        filter_row.addWidget(QLabel("النوع"))
-        filter_row.addWidget(self.filter_type)
-        filter_row.addWidget(QLabel("الحالة"))
-        filter_row.addWidget(self.filter_status)
-        filter_row.addWidget(clear_button)
-        layout.addWidget(filter_card)
+        for caption, widget, stretch in (
+            ("بحث", self.search_input, 1),
+            ("النوع", self.filter_type, 0),
+            ("الحالة", self.filter_status, 0),
+        ):
+            label = QLabel(caption)
+            label.setObjectName("fieldCaption")
+            row.addWidget(label)
+            row.addWidget(widget, stretch)
+        row.addWidget(clear_button)
+        return card
 
-        # Hierarchical browser: collapsed levels keep long lists manageable.
-        tree_card = QFrame()
-        tree_card.setObjectName("treeCard")
-        tree_layout = QVBoxLayout(tree_card)
-        tree_layout.setContentsMargins(10, 10, 10, 10)
-        tree_layout.setSpacing(8)
-
-        tree_header = QHBoxLayout()
-        tree_title = QLabel("الوحدات والعلاقات التنظيمية")
-        tree_title.setObjectName("sectionTitle")
-        tree_header.addWidget(tree_title)
-        tree_header.addStretch()
-
-        self.quick_search = QLineEdit()
-        self.quick_search.setObjectName("quickSearch")
-        self.quick_search.setPlaceholderText("بحث سريع داخل الشجرة…")
-        self.quick_search.setClearButtonEnabled(True)
-        self.quick_search.setMinimumWidth(230)
-        self.quick_search.setToolTip(
-            "اكتب اسم الوحدة أو مسارها، ثم اختر النتيجة للانتقال إليها"
-        )
-        self.quick_search_model = QStringListModel([], self)
-        self.quick_search_completer = QCompleter(self.quick_search_model, self)
-        self.quick_search_completer.setCaseSensitivity(Qt.CaseInsensitive)
-        self.quick_search_completer.setFilterMode(Qt.MatchContains)
-        self.quick_search_completer.setCompletionMode(QCompleter.PopupCompletion)
-        self.quick_search.setCompleter(self.quick_search_completer)
-        self.quick_search_completer.activated[str].connect(self._on_quick_completion)
-        self.quick_search.returnPressed.connect(self._quick_find_unit)
-        tree_header.addWidget(self.quick_search)
-
-        self.quick_find_button = QPushButton("انتقال")
-        self.quick_find_button.setObjectName("toolButton")
-        self.quick_find_button.clicked.connect(self._quick_find_unit)
-        tree_header.addWidget(self.quick_find_button)
-
-        self.btn_collapse = QPushButton("طي الكل")
-        self.btn_collapse.setObjectName("toolButton")
-        self.btn_collapse.clicked.connect(self._collapse_all)
-        self.btn_expand = QPushButton("توسيع الكل")
-        self.btn_expand.setObjectName("toolButton")
-        self.btn_expand.clicked.connect(self._expand_all)
-        tree_header.addWidget(self.btn_collapse)
-        tree_header.addWidget(self.btn_expand)
-        tree_layout.addLayout(tree_header)
+    def _build_tree_card(self):
+        card = QFrame()
+        card.setObjectName("treeCard")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+        layout.addLayout(self._build_tree_toolbar())
 
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(5)
+        self.tree.setColumnCount(4)
         self.tree.setHeaderLabels(
-            [
-                "الوحدة التنظيمية",
-                "النوع",
-                "الحالة",
-                "عدد العناصر التابعة",
-                "الإجراءات",
-            ]
+            ["الوحدة التنظيمية", "النوع", "عدد العناصر التابعة", "الإجراءات"]
         )
         self.tree.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.tree.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -535,155 +1032,272 @@ class OrgStructurePage(QWidget):
         self.tree.setRootIsDecorated(True)
         self.tree.setIndentation(22)
         self.tree.setAnimated(True)
-        self.tree.setUniformRowHeights(False)
         self.tree.setAllColumnsShowFocus(True)
+        self.tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self._show_context_menu)
+        self.tree.itemDoubleClicked.connect(self._on_item_double_clicked)
+
         header = self.tree.header()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        tree_layout.addWidget(self.tree, 1)
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(COL_NAME, QHeaderView.Stretch)
+        for column, width in (
+            (COL_TYPE, TYPE_COLUMN_WIDTH),
+            (COL_COUNT, COUNT_COLUMN_WIDTH),
+            (COL_ACTIONS, ACTIONS_COLUMN_WIDTH),
+        ):
+            header.setSectionResizeMode(column, QHeaderView.Fixed)
+            header.resizeSection(column, width)
+        header_item = self.tree.headerItem()
+        for column in (COL_TYPE, COL_COUNT, COL_ACTIONS):
+            header_item.setTextAlignment(column, Qt.AlignCenter)
+        layout.addWidget(self.tree, 1)
+
+        self.empty_state = self._build_empty_state()
+        layout.addWidget(self.empty_state, 1)
 
         self.stats_lbl = QLabel("")
         self.stats_lbl.setObjectName("statsLabel")
-        tree_layout.addWidget(self.stats_lbl)
-        layout.addWidget(tree_card, 1)
+        layout.addWidget(self.stats_lbl)
+        return card
 
-        self.setStyleSheet("""
-            #orgPage { background: #f4f7fb; }
-            #pageTitle { color: #0f2338; font-size: 23px; font-weight: 800; }
-            #pageSubtitle { color: #64748b; font-size: 12px; }
-            #filterCard, #treeCard, #metricCard {
-                background: white; border: 1px solid #e2e8f0; border-radius: 12px;
-            }
-            #metricTitle { color: #64748b; font-size: 11px; font-weight: 700; }
-            #metricValue { color: #0f2338; font-size: 23px; font-weight: 800; }
-            #sectionTitle { color: #0f2338; font-size: 14px; font-weight: 800; }
-            #rootLegend { background: #fff7ed; color: #9a3412; border-radius: 8px; padding: 5px 9px; font-size: 11px; font-weight: 700; }
-            QWidget#rootActionCell { background: #fff7ed; border-radius: 6px; }
-            #statsLabel { color: #64748b; font-size: 11px; padding: 3px 6px; }
-            QTreeWidget {
-                background: white; border: none; gridline-color: #f1f5f9;
-                selection-background-color: #e0f2fe; selection-color: #0f2338;
-                alternate-background-color: #f8fafc; outline: none;
-            }
-            QTreeWidget::item { padding: 3px 7px; border-bottom: 1px solid #f1f5f9; }
-            QTreeWidget::item:hover { background: #f0f9ff; }
-            QHeaderView::section {
-                background: #f8fafc; color: #0f2338; padding: 10px 8px;
-                border: none; border-bottom: 2px solid #0891b2; font-weight: 700;
-            }
-            QLineEdit, QComboBox {
-                background: #fbfdff; border: 1px solid #cbd5e1;
-                border-radius: 8px; padding: 7px 10px; min-width: 115px;
-            }
-            QLineEdit#quickSearch { min-width: 230px; background: white; }
-            QLineEdit:focus, QComboBox:focus { border: 1.5px solid #0891b2; }
-            QPushButton#primaryButton {
-                background: #0891b2; color: white; border: none;
-                border-radius: 9px; padding: 9px 17px; font-weight: 700;
-            }
-            QPushButton#primaryButton:hover { background: #0e7490; }
-            QPushButton#toolButton, QPushButton#clearButton {
-                background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1;
-                border-radius: 8px; padding: 6px 11px; font-weight: 700;
-            }
-            QPushButton#toolButton:hover, QPushButton#clearButton:hover { background: #e2e8f0; }
-            QPushButton#editBtn, QPushButton#deleteBtn {
-                border-radius: 7px; padding: 3px 9px; font-size: 11px; font-weight: 700;
-                min-height: 30px;
-            }
-            QPushButton#editBtn { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
-            QPushButton#editBtn:hover { background: #dbeafe; }
-            QPushButton#deleteBtn { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
-            QPushButton#deleteBtn:hover { background: #fee2e2; }
-        """)
+    def _build_tree_toolbar(self):
+        row = QHBoxLayout()
+        title = QLabel("الوحدات والعلاقات التنظيمية")
+        title.setObjectName("sectionTitle")
+        row.addWidget(title)
+        row.addStretch()
 
-    def _metric_card(self, title, value):
-        card = QFrame()
-        card.setObjectName("metricCard")
-        box = QVBoxLayout(card)
-        box.setContentsMargins(15, 11, 15, 11)
-        box.setSpacing(3)
-        title_label = QLabel(title)
-        title_label.setObjectName("metricTitle")
-        value_label = QLabel(value)
-        value_label.setObjectName("metricValue")
-        box.addWidget(title_label)
-        box.addWidget(value_label)
-        return card, value_label
+        self.quick_search = QLineEdit()
+        self.quick_search.setObjectName("quickSearch")
+        self.quick_search.setPlaceholderText("بحث سريع داخل الشجرة…")
+        self.quick_search.setClearButtonEnabled(True)
+        self.quick_search.setToolTip(
+            "اكتب اسم الوحدة أو مسارها، ثم اختر النتيجة للانتقال إليها (Ctrl+F)"
+        )
+        self.quick_search_model = QStringListModel([], self)
+        completer = QCompleter(self.quick_search_model, self)
+        completer.setCaseSensitivity(Qt.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchContains)
+        completer.setCompletionMode(QCompleter.PopupCompletion)
+        completer.activated[str].connect(self._on_quick_completion)
+        self.quick_search_completer = completer
+        self.quick_search.setCompleter(completer)
+        self.quick_search.returnPressed.connect(self._quick_find_unit)
+        row.addWidget(self.quick_search)
 
-    def _clear_filters(self):
-        self.search_input.blockSignals(True)
-        self.filter_type.blockSignals(True)
-        self.filter_status.blockSignals(True)
-        self.search_input.clear()
-        self.filter_type.setCurrentIndex(0)
-        self.filter_status.setCurrentIndex(1)
-        self.search_input.blockSignals(False)
-        self.filter_type.blockSignals(False)
-        self.filter_status.blockSignals(False)
-        self.load_units()
+        self.quick_find_button = QPushButton("انتقال")
+        self.quick_find_button.setObjectName("toolButton")
+        self.quick_find_button.clicked.connect(self._quick_find_unit)
+        self.btn_collapse = QPushButton("طي الكل")
+        self.btn_collapse.setObjectName("toolButton")
+        self.btn_collapse.clicked.connect(lambda: self.tree.collapseAll())
+        self.btn_expand = QPushButton("توسيع الكل")
+        self.btn_expand.setObjectName("toolButton")
+        self.btn_expand.clicked.connect(lambda: self.tree.expandAll())
+        for button in (self.quick_find_button, self.btn_collapse, self.btn_expand):
+            button.setCursor(Qt.PointingHandCursor)
+            row.addWidget(button)
+        return row
 
-    def _expand_all(self):
-        self.tree.expandAll()
+    def _build_empty_state(self):
+        frame = QFrame()
+        layout = QVBoxLayout(frame)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(6)
+        self.empty_title = QLabel()
+        self.empty_title.setObjectName("emptyTitle")
+        self.empty_title.setAlignment(Qt.AlignCenter)
+        self.empty_hint = QLabel()
+        self.empty_hint.setObjectName("emptyHint")
+        self.empty_hint.setAlignment(Qt.AlignCenter)
+        self.empty_hint.setWordWrap(True)
+        layout.addWidget(self.empty_title)
+        layout.addWidget(self.empty_hint)
+        frame.hide()
+        return frame
 
-    def _collapse_all(self):
-        self.tree.collapseAll()
+    def _bind_shortcuts(self):
+        shortcuts = (
+            (QKeySequence.New, self, lambda: self._add_unit()),
+            (QKeySequence.Find, self, self._focus_quick_search),
+            (QKeySequence(Qt.Key_Delete), self.tree, self._delete_selected),
+        )
+        self._shortcuts = []
+        for sequence, widget, handler in shortcuts:
+            shortcut = QShortcut(QKeySequence(sequence), widget)
+            shortcut.setContext(Qt.WidgetWithChildrenShortcut)
+            shortcut.activated.connect(handler)
+            self._shortcuts.append(shortcut)
 
-    # ─────────────── Load ────────────────────────────────────
+    def _focus_quick_search(self):
+        self.quick_search.setFocus()
+        self.quick_search.selectAll()
 
-    def _show_toast(self, message, duration_ms=3200):
-        if not hasattr(self, "_toast_label"):
-            self._toast_label = QLabel(self)
-            self._toast_label.setObjectName("successToast")
-            self._toast_label.setAlignment(Qt.AlignCenter)
-            self._toast_label.setWordWrap(True)
-            self._toast_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-            self._toast_label.setContentsMargins(16, 9, 16, 9)
-            self._toast_label.setMinimumHeight(42)
-            self._toast_label.setStyleSheet(
-                "QLabel#successToast { background: #166534; color: white; "
-                "border: 1px solid #14532d; border-radius: 11px; "
-                "font-size: 12px; font-weight: 700; padding: 9px 16px; }"
-            )
-            self._toast_timer = QTimer(self)
-            self._toast_timer.setSingleShot(True)
-            self._toast_timer.timeout.connect(self._toast_label.hide)
+    def load_units(self, *_args):
+        self.reload()
 
-        max_width = max(200, min(520, self.width() - 32))
-        self._toast_label.setMinimumWidth(min(240, max_width))
-        self._toast_label.setMaximumWidth(max_width)
-        self._toast_label.setText(message)
-        self._toast_label.adjustSize()
-        x = max(16, (self.width() - self._toast_label.width()) // 2)
-        y = max(16, self.height() - self._toast_label.height() - 24)
-        self._toast_label.move(x, y)
-        self._toast_label.show()
-        self._toast_label.raise_()
-        self._toast_timer.start(duration_ms)
+    def reload(self):
+        try:
+            units = OrgUnitRepository.fetch_all()
+        except Exception as error:
+            QMessageBox.critical(self, "خطأ", f"تعذر تحميل البيانات:\n{error}")
+            return
+        self._units = units
+        self._index = OrgIndex(units)
+        self._refresh_quick_search_model()
+        self._render()
 
-    def _unit_path(self, unit, units_by_id):
-        names = []
-        current = unit
-        visited = set()
-        while current:
-            unit_id = current.get("id")
-            if unit_id in visited:
-                break
-            visited.add(unit_id)
-            names.append(current.get("name") or "(بدون اسم)")
-            current = units_by_id.get(current.get("parent_id"))
-        return " / ".join(reversed(names))
+    def _current_filters(self):
+        return (
+            self.search_input.text().strip().lower(),
+            self.filter_type.currentData() or "",
+            self.filter_status.currentData() or "",
+        )
 
-    def _refresh_quick_search_model(self, units_by_id):
+    @staticmethod
+    def _matches(unit, search, type_filter, status_filter):
+        if type_filter and unit.get("unit_type") != type_filter:
+            return False
+        if status_filter and str(int(bool(unit.get("is_active")))) != status_filter:
+            return False
+        if search and search not in (unit.get("name") or "").lower():
+            return False
+        return True
+
+    def _set_filters(self, search="", type_index=0, status_index=1):
+        widgets = (self.search_input, self.filter_type, self.filter_status)
+        for widget in widgets:
+            widget.blockSignals(True)
+        self.search_input.setText(search)
+        self.filter_type.setCurrentIndex(type_index)
+        self.filter_status.setCurrentIndex(status_index)
+        for widget in widgets:
+            widget.blockSignals(False)
+        self._search_timer.stop()
+        self._render()
+
+    def _render(self):
+        search, type_filter, status_filter = self._current_filters()
+        selected_id = self._selected_unit_id()
+        matched = {
+            unit["id"]
+            for unit in self._units
+            if self._matches(unit, search, type_filter, status_filter)
+        }
+        visible = self._index.with_ancestors(matched)
+        ordered = [unit for unit in self._units if unit["id"] in visible]
+
+        self.tree.setUpdatesEnabled(False)
+        self.tree.clear()
+        self._items = {unit["id"]: self._build_item(unit) for unit in ordered}
+        for unit in ordered:
+            item = self._items[unit["id"]]
+            parent_item = self._items.get(unit.get("parent_id"))
+            if parent_item is not None:
+                parent_item.addChild(item)
+            else:
+                self.tree.addTopLevelItem(item)
+        for unit in ordered:
+            self._attach_actions(unit, self._items[unit["id"]])
+
+        is_filtering = bool(search or type_filter or status_filter == "0")
+        if is_filtering:
+            self.tree.expandAll()
+        else:
+            self.tree.collapseAll()
+            for position in range(self.tree.topLevelItemCount()):
+                self.tree.topLevelItem(position).setExpanded(True)
+        self.tree.setUpdatesEnabled(True)
+
+        if selected_id in self._items:
+            self._reveal(self._items[selected_id])
+            self.tree.setCurrentItem(self._items[selected_id], COL_NAME)
+
+        self._update_summary(len(matched), len(visible), is_filtering)
+
+    def _build_item(self, unit):
+        is_root = self._index.is_root(unit)
+        is_active = bool(unit.get("is_active"))
+        name = unit.get("name") or UNNAMED
+        item = QTreeWidgetItem(
+            [
+                f"◆ {name}  — وحدة رئيسية" if is_root else name,
+                "",
+                str(self._index.descendant_count(unit["id"])),
+                "",
+            ]
+        )
+        item.setData(COL_NAME, Qt.UserRole, unit["id"])
+        item.setSizeHint(COL_NAME, QSize(0, ROW_HEIGHT))
+        for column in (COL_TYPE, COL_COUNT):
+            item.setTextAlignment(column, Qt.AlignCenter)
+
+        item.setToolTip(COL_TYPE, unit.get("unit_type") or "")
+        item.setForeground(COL_COUNT, QColor(PALETTE["accent_text"]))
+        item.setToolTip(COL_COUNT, "عدد جميع العناصر التابعة، بكل المستويات والحالات")
+
+        if not is_active:
+            item.setForeground(COL_NAME, QColor(PALETTE["faint"]))
+        if is_root:
+            font = QFont(item.font(COL_NAME))
+            font.setPointSize(11)
+            font.setBold(True)
+            item.setFont(COL_NAME, font)
+            item.setToolTip(COL_NAME, "وحدة رئيسية في الهيكل التنظيمي")
+            if is_active:
+                item.setForeground(COL_NAME, QColor(PALETTE["root_fg"]))
+            for column in (COL_NAME, COL_TYPE, COL_COUNT):
+                item.setBackground(column, QColor(PALETTE["root_bg"]))
+        return item
+
+    def _attach_actions(self, unit, item):
+        actions = RowActions(is_root=self._index.is_root(unit))
+        unit_id = unit["id"]
+        actions.edit_requested.connect(lambda uid=unit_id: self._edit_unit(uid))
+        actions.delete_requested.connect(lambda uid=unit_id: self._delete_unit(uid))
+        self.tree.setItemWidget(item, COL_TYPE, TypeBadge(unit.get("unit_type")))
+        self.tree.setItemWidget(item, COL_ACTIONS, actions)
+
+    def _update_summary(self, matched_count, visible_count, is_filtering):
+        total = len(self._units)
+        active = sum(bool(unit.get("is_active")) for unit in self._units)
+        roots = sum(self._index.is_root(unit) for unit in self._units)
+        self.metric_total.set_value(total)
+        self.metric_roots.set_value(roots)
+        self.metric_active.set_value(active)
+        self.metric_inactive.set_value(total - active)
+        self.stats_lbl.setText(
+            f"إجمالي الوحدات: {total}  |  مطابقة للفلاتر: {matched_count}  |  "
+            f"ظاهرة في المسار: {visible_count}"
+        )
+
+        has_rows = bool(self._items)
+        self.tree.setVisible(has_rows)
+        self.empty_state.setVisible(not has_rows)
+        if not has_rows:
+            if total == 0:
+                self.empty_title.setText("لا توجد وحدات بعد")
+                self.empty_hint.setText("ابدأ بإضافة أول فرع أو مبنى من زر «إضافة وحدة».")
+            else:
+                self.empty_title.setText("لا توجد نتائج مطابقة")
+                self.empty_hint.setText("جرّب تغيير كلمات البحث أو الضغط على «مسح الفلاتر».")
+
+    def _selected_unit_id(self):
+        item = self.tree.currentItem()
+        return item.data(COL_NAME, Qt.UserRole) if item else None
+
+    def _reveal(self, item):
+        ancestor = item.parent()
+        while ancestor is not None:
+            ancestor.setExpanded(True)
+            ancestor = ancestor.parent()
+
+    def _refresh_quick_search_model(self):
         self._quick_label_to_id = {}
         self._quick_label_by_id = {}
         labels = []
-        for unit in self._all_units:
-            path = self._unit_path(unit, units_by_id)
-            label = f"{path}  [{unit.get('unit_type') or 'وحدة'}]"
+        for unit in self._units:
+            label = f"{self._index.path(unit)}  [{unit.get('unit_type') or 'وحدة'}]"
             if label.casefold() in self._quick_label_to_id:
                 label = f"{label}  · {unit['id']}"
             self._quick_label_to_id[label.casefold()] = unit["id"]
@@ -696,6 +1310,18 @@ class OrgStructurePage(QWidget):
         if unit_id is not None:
             self._navigate_to_unit(unit_id)
 
+    def _find_candidates(self, query):
+        names = [(unit, (unit.get("name") or "").casefold()) for unit in self._units]
+        for predicate in (
+            lambda name: name == query,
+            lambda name: name.startswith(query),
+            lambda name: query in name,
+        ):
+            found = [unit for unit, name in names if predicate(name)]
+            if found:
+                return found
+        return []
+
     def _quick_find_unit(self):
         query = self.quick_search.text().strip().casefold()
         if not query:
@@ -706,342 +1332,263 @@ class OrgStructurePage(QWidget):
             self._navigate_to_unit(unit_id)
             return
 
-        exact = [
-            u for u in self._all_units if (u.get("name") or "").casefold() == query
-        ]
-        candidates = exact or [
-            u
-            for u in self._all_units
-            if (u.get("name") or "").casefold().startswith(query)
-        ]
+        candidates = self._find_candidates(query)
         if not candidates:
-            candidates = [
-                u for u in self._all_units if query in (u.get("name") or "").casefold()
-            ]
-
-        if not candidates:
-            QMessageBox.information(
-                self,
-                "لا توجد نتيجة",
-                "لم يتم العثور على وحدة بهذا الاسم.",
-            )
+            self._toast.show_message("لم يتم العثور على وحدة بهذا الاسم.", "warning")
             return
-
         if len(candidates) > 1:
             self.quick_search.setFocus()
-            self.quick_search.setToolTip(
-                "وجدت أكثر من وحدة مطابقة؛ اختر المسار الصحيح من قائمة الاقتراحات."
-            )
             self.quick_search_completer.complete()
+            self._toast.show_message(
+                "وجدت أكثر من وحدة مطابقة؛ اختر المسار الصحيح من القائمة.", "warning"
+            )
             return
-
         self._navigate_to_unit(candidates[0]["id"])
 
     def _navigate_to_unit(self, unit_id):
-        # Preserve current filters unless they hide the requested unit.
-        if unit_id not in self._tree_items_by_id:
-            self.search_input.blockSignals(True)
-            self.filter_type.blockSignals(True)
-            self.filter_status.blockSignals(True)
-            self.search_input.clear()
-            self.filter_type.setCurrentIndex(0)
-            self.filter_status.setCurrentIndex(0)
-            self.search_input.blockSignals(False)
-            self.filter_type.blockSignals(False)
-            self.filter_status.blockSignals(False)
-            self.load_units()
-
-        item = self._tree_items_by_id.get(unit_id)
+        if unit_id not in self._items:
+            self._set_filters(status_index=0)
+        item = self._items.get(unit_id)
         if item is None:
-            QMessageBox.information(
-                self,
-                "تعذر الوصول",
-                "لم أتمكن من إظهار الوحدة في الشجرة.",
-            )
+            self._toast.show_message("تعذر إظهار الوحدة في الشجرة.", "warning")
             return
-
-        parent = item.parent()
-        while parent is not None:
-            parent.setExpanded(True)
-            parent = parent.parent()
+        self._reveal(item)
         if item.childCount():
             item.setExpanded(True)
-
-        self.tree.setCurrentItem(item, 0)
+        self.tree.setCurrentItem(item, COL_NAME)
         self.tree.scrollToItem(item, QAbstractItemView.PositionAtCenter)
         self.tree.setFocus()
         self.quick_search.setText(self._quick_label_by_id.get(unit_id, ""))
 
-    def load_units(self, *_args):
-        search = (
-            self.search_input.text().strip().lower()
-            if hasattr(self, "search_input")
-            else ""
-        )
-        type_filter = (
-            self.filter_type.currentData() if hasattr(self, "filter_type") else ""
-        )
-        status_filter = (
-            self.filter_status.currentData() if hasattr(self, "filter_status") else "1"
-        )
+    def _on_item_double_clicked(self, item, _column):
+        unit_id = item.data(COL_NAME, Qt.UserRole)
+        if unit_id is not None:
+            self._edit_unit(unit_id)
 
-        conn = None
-        try:
-            conn = get_connection()
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT
-                    o.id, o.name, o.unit_type, o.parent_id, o.is_active,
-                    p.name AS parent_name
-                FROM dbo.org_units o
-                LEFT JOIN dbo.org_units p ON p.id = o.parent_id
-                ORDER BY o.sort_order, o.unit_type, o.name
-            """)
-            fetched_units = cursor.fetchall()
-            self._all_units = [dict(unit.items()) for unit in fetched_units]
-        except Exception as error:
-            QMessageBox.critical(self, "خطأ", f"تعذر تحميل البيانات:\n{error}")
+    def _delete_selected(self):
+        unit_id = self._selected_unit_id()
+        if unit_id is not None:
+            self._delete_unit(unit_id)
+
+    def _show_context_menu(self, position):
+        item = self.tree.itemAt(position)
+        if item is None:
             return
-        finally:
-            if conn is not None:
-                conn.close()
+        unit = self._index.by_id.get(item.data(COL_NAME, Qt.UserRole))
+        if unit is None:
+            return
+        self.tree.setCurrentItem(item)
+        unit_id = unit["id"]
+        is_active = bool(unit.get("is_active"))
 
-        def matches(unit):
-            if type_filter and unit["unit_type"] != type_filter:
-                return False
-            is_active = bool(unit["is_active"])
-            if status_filter != "" and str(int(is_active)) != status_filter:
-                return False
-            if search and search not in (unit["name"] or "").lower():
-                return False
-            return True
+        menu = QMenu(self)
+        menu.setLayoutDirection(Qt.RightToLeft)
+        menu.addAction("تعديل", lambda: self._edit_unit(unit_id))
+        if unit.get("unit_type") in PARENT_CAPABLE_TYPES:
+            menu.addAction("إضافة وحدة تابعة", lambda: self._add_unit(unit_id))
+        menu.addAction(
+            "تعطيل الوحدة" if is_active else "تفعيل الوحدة",
+            lambda: self._set_active(unit_id, not is_active),
+        )
+        menu.addAction("نسخ المسار", lambda: self._copy_path(unit_id))
+        menu.addSeparator()
+        menu.addAction("حذف", lambda: self._delete_unit(unit_id))
+        menu.exec(self.tree.viewport().mapToGlobal(position))
 
-        matched_ids = {unit["id"] for unit in self._all_units if matches(unit)}
-        visible_ids = set(matched_ids)
-        units_by_id = {unit["id"]: unit for unit in self._all_units}
-        self._refresh_quick_search_model(units_by_id)
+    def _copy_path(self, unit_id):
+        unit = self._index.by_id.get(unit_id)
+        if unit is None:
+            return
+        QGuiApplication.clipboard().setText(self._index.path(unit))
+        self._toast.show_message("تم نسخ مسار الوحدة")
 
-        # Keep matching units' ancestors visible for context in the hierarchy.
-        for unit_id in list(matched_ids):
-            current = units_by_id.get(unit_id)
-            visited = set()
-            while current and current.get("parent_id") in units_by_id:
-                parent_id = current.get("parent_id")
-                if parent_id in visited:
-                    break
-                visited.add(parent_id)
-                visible_ids.add(parent_id)
-                current = units_by_id[parent_id]
-
-        self.tree.clear()
-        tree_items = {}
-        children_by_parent = {}
-        for unit in self._all_units:
-            children_by_parent.setdefault(unit.get("parent_id"), []).append(unit["id"])
-
-        descendant_counts = {}
-
-        def count_descendants(unit_id, trail=None):
-            trail = set() if trail is None else trail
-            if unit_id in trail:
-                return 0
-            if unit_id in descendant_counts:
-                return descendant_counts[unit_id]
-            next_trail = trail | {unit_id}
-            count = 0
-            for child_id in children_by_parent.get(unit_id, []):
-                if child_id in next_trail:
-                    continue
-                count += 1 + count_descendants(child_id, next_trail)
-            descendant_counts[unit_id] = count
-            return count
-
-        type_colors = {
-            "فرع": ("#eff6ff", "#1e40af"),
-            "مبنى": ("#f0fdf4", "#166534"),
-            "قسم": ("#fefce8", "#854d0e"),
-            "مكتب": ("#fdf4ff", "#7e22ce"),
+    def _audit(self, action, description, record_id=None, old_values=None, new_values=None):
+        payload = {
+            "user": self.current_user,
+            "action": action,
+            "module_name": MODULE_NAME,
+            "description": description,
         }
+        if record_id is not None:
+            payload["record_id"] = record_id
+        if old_values is not None:
+            payload["old_values"] = old_values
+        if new_values is not None:
+            payload["new_values"] = new_values
+        write_audit_log(**payload)
 
-        for unit in self._all_units:
-            unit_id = unit["id"]
-            if unit_id not in visible_ids:
-                continue
-            is_root_unit = unit.get("parent_id") not in units_by_id
-            display_name = unit.get("name") or "(بدون اسم)"
-            if is_root_unit:
-                display_name = f"◆ {display_name}  — وحدة رئيسية"
-            item = QTreeWidgetItem(
-                [
-                    display_name,
-                    unit.get("unit_type") or "",
-                    "نشط ✓" if bool(unit.get("is_active")) else "معطل",
-                    str(count_descendants(unit_id)),
-                    "",
-                ]
+    def _commit_change(self, failure_text, operation, success_message):
+        try:
+            focus_id = operation()
+        except Exception as error:
+            QMessageBox.critical(self, "خطأ", f"{failure_text}\n{error}")
+            return
+        self.reload()
+        if focus_id in self._items or focus_id in self._index.by_id:
+            self._navigate_to_unit(focus_id)
+        self._toast.show_message(success_message)
+
+    def _add_unit(self, parent_id=None):
+        dialog = OrgUnitDialog(self, all_units=self._units, default_parent_id=parent_id)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        data = dialog.get_data()
+
+        def operation():
+            unit_id = OrgUnitRepository.insert(data)
+            self._audit(
+                "إضافة",
+                f"إضافة عنصر: {data['name']} ({data['unit_type']})",
+                record_id=unit_id,
+                new_values=org_unit_audit_data(
+                    {**data, "id": unit_id, "is_active": True}, self._units
+                ),
             )
-            if is_root_unit:
-                root_font = QFont(item.font(0))
-                root_font.setPointSize(11)
-                root_font.setBold(True)
-                item.setFont(0, root_font)
-            item.setData(0, Qt.UserRole, unit_id)
-            item.setSizeHint(0, QSize(0, 56))
-            bg, fg = type_colors.get(unit.get("unit_type"), ("#f8fafc", "#334155"))
-            item.setBackground(1, QColor(bg))
-            item.setForeground(1, QColor(fg))
-            item.setTextAlignment(1, Qt.AlignCenter)
-            item.setTextAlignment(2, Qt.AlignCenter)
-            item.setTextAlignment(3, Qt.AlignCenter)
-            item.setForeground(3, QColor("#0369a1"))
-            item.setToolTip(3, "عدد جميع العناصر التابعة، بكل المستويات والحالات")
-            if not bool(unit.get("is_active")):
-                item.setForeground(2, QColor("#991b1b"))
-            else:
-                item.setForeground(2, QColor("#166534"))
-            tree_items[unit_id] = item
+            return unit_id
 
-        # Attach all nodes first, so action widgets are installed on visible tree items.
-        for unit in self._all_units:
-            unit_id = unit["id"]
-            item = tree_items.get(unit_id)
-            if item is None:
-                continue
-            parent_item = tree_items.get(unit.get("parent_id"))
-            if parent_item is not None:
-                parent_item.addChild(item)
-            else:
-                self.tree.addTopLevelItem(item)
+        self._commit_change("تعذر الإضافة:", operation, f"تمت إضافة «{data['name']}» بنجاح")
 
-        for unit in self._all_units:
-            unit_id = unit["id"]
-            item = tree_items.get(unit_id)
-            if item is None:
-                continue
-            unit_dict = dict(unit)
-            actions = QWidget()
-            action_layout = QHBoxLayout(actions)
-            actions.setMinimumHeight(48)
-            action_layout.setContentsMargins(5, 4, 5, 4)
-            action_layout.setSpacing(5)
-            action_layout.setAlignment(Qt.AlignVCenter)
+    def _edit_unit(self, unit_id):
+        unit = self._index.by_id.get(unit_id)
+        if unit is None:
+            return
+        dialog = OrgUnitDialog(self, unit=unit, all_units=self._units)
+        if dialog.exec() != QDialog.Accepted:
+            return
+        data = dialog.get_data()
+        unchanged = (
+            data["name"] == (unit.get("name") or "")
+            and data["unit_type"] == unit.get("unit_type")
+            and data["parent_id"] == unit.get("parent_id")
+        )
+        if unchanged:
+            return
 
-            edit_button = QPushButton("تعديل")
-            edit_button.setObjectName("editBtn")
-            edit_button.setCursor(Qt.PointingHandCursor)
-            edit_button.setMinimumHeight(32)
-            edit_button.clicked.connect(
-                lambda checked=False, ud=unit_dict: self._edit_unit(ud)
+        def operation():
+            OrgUnitRepository.update(unit_id, data)
+            self._audit(
+                "تعديل",
+                f"تعديل عنصر ID={unit_id}: {data['name']}",
+                record_id=unit_id,
+                old_values=org_unit_audit_data(unit, self._units),
+                new_values=org_unit_audit_data(
+                    {**data, "id": unit_id, "is_active": unit.get("is_active", True)},
+                    self._units,
+                ),
             )
-            action_layout.addWidget(edit_button)
+            return unit_id
 
-            delete_button = QPushButton("حذف")
-            delete_button.setObjectName("deleteBtn")
-            delete_button.setCursor(Qt.PointingHandCursor)
-            delete_button.setMinimumHeight(32)
-            delete_button.clicked.connect(
-                lambda checked=False, ud=unit_dict: self._delete_unit(ud)
+        self._commit_change("تعذر التعديل:", operation, "تم حفظ التعديلات بنجاح")
+
+    def _set_active(self, unit_id, active):
+        unit = self._index.by_id.get(unit_id)
+        if unit is None:
+            return
+        name = unit.get("name")
+
+        def operation():
+            OrgUnitRepository.set_active(unit_id, active)
+            self._audit(
+                "تفعيل" if active else "تعطيل",
+                f"{'تفعيل' if active else 'تعطيل'} عنصر: {name}",
+                record_id=unit_id,
+                old_values=org_unit_audit_data(unit, self._units),
+                new_values=org_unit_audit_data({**unit, "is_active": active}, self._units),
             )
-            action_layout.addWidget(delete_button)
-            if item.parent() is None:
-                actions.setObjectName("rootActionCell")
-            self.tree.setItemWidget(item, 4, actions)
+            return unit_id
 
-        self._tree_items_by_id = tree_items
-
-        # Highlight the full row of every top-level unit, not just its name cell.
-        for index in range(self.tree.topLevelItemCount()):
-            root_item = self.tree.topLevelItem(index)
-            for column in range(4):
-                root_item.setBackground(column, QColor("#fff7ed"))
-            root_item.setForeground(0, QColor("#9a3412"))
-            root_font = root_item.font(0)
-            root_font.setBold(True)
-            root_item.setFont(0, root_font)
-            root_item.setToolTip(0, "وحدة رئيسية في الهيكل التنظيمي")
-
-        # Make filtered results easy to find; otherwise show roots and one level.
-        if search or type_filter or status_filter == "0":
-            self.tree.expandAll()
-        else:
-            self.tree.collapseAll()
-            for index in range(self.tree.topLevelItemCount()):
-                self.tree.topLevelItem(index).setExpanded(True)
-
-        total = len(self._all_units)
-        active_count = sum(bool(unit.get("is_active")) for unit in self._all_units)
-        self.metric_total[1].setText(str(total))
-        self.metric_active[1].setText(str(active_count))
-        self.metric_inactive[1].setText(str(total - active_count))
-        self.stats_lbl.setText(
-            f"إجمالي الوحدات: {total}  |  مطابقة للفلاتر: {len(matched_ids)}  |  "
-            f"ظاهرة في المسار: {len(visible_ids)}"
+        self._commit_change(
+            "تعذر تغيير الحالة:",
+            operation,
+            f"تم {'تفعيل' if active else 'تعطيل'} «{name}»",
         )
 
-    def _hierarchy_rows_for_export(self):
-        units_by_id = {unit["id"]: unit for unit in self._all_units}
-        children_by_parent = {}
-        for unit in self._all_units:
-            children_by_parent.setdefault(unit.get("parent_id"), []).append(unit)
+    def _delete_unit(self, unit_id):
+        unit = self._index.by_id.get(unit_id)
+        if unit is None:
+            return
+        name = unit.get("name")
 
-        descendant_cache = {}
+        try:
+            usage = OrgUnitRepository.usage_count(unit_id)
+            children = OrgUnitRepository.child_count(unit_id)
+        except Exception as error:
+            QMessageBox.critical(self, "خطأ", f"تعذر الفحص:\n{error}")
+            return
 
-        def descendant_count(unit_id, trail=None):
-            trail = set() if trail is None else trail
-            if unit_id in trail:
-                return 0
-            if unit_id in descendant_cache:
-                return descendant_cache[unit_id]
-            next_trail = trail | {unit_id}
-            count = 0
-            for child in children_by_parent.get(unit_id, []):
-                child_id = child["id"]
-                if child_id not in next_trail:
-                    count += 1 + descendant_count(child_id, next_trail)
-            descendant_cache[unit_id] = count
-            return count
+        if children > 0:
+            QMessageBox.warning(
+                self,
+                "تعذر الحذف",
+                f"العنصر «{name}» لديه {children} عنصر تابع.\n"
+                "يجب حذف العناصر التابعة أولاً أو نقلها.",
+            )
+            return
 
-        result = []
-        visited = set()
+        if usage > 0:
+            self._offer_deactivation(unit, usage)
+            return
 
-        def append_branch(unit, level, ancestors):
-            unit_id = unit["id"]
-            if unit_id in visited:
-                return
-            visited.add(unit_id)
-            name = unit.get("name") or "(بدون اسم)"
-            path_parts = ancestors + [name]
-            parent = units_by_id.get(unit.get("parent_id"))
-            result.append(
+        confirmed = confirm_action(
+            self,
+            "تأكيد الحذف",
+            f"هل تريد حذف العنصر «{name}» نهائياً؟\n\nلا يمكن التراجع عن هذا الإجراء.",
+            "حذف نهائي",
+            QMessageBox.Warning,
+        )
+        if not confirmed:
+            return
+
+        def operation():
+            OrgUnitRepository.delete(unit_id)
+            self._audit(
+                "حذف",
+                f"حذف عنصر: {name}",
+                record_id=unit_id,
+                old_values=org_unit_audit_data(unit, self._units),
+                new_values={"deleted": True},
+            )
+            return None
+
+        self._commit_change("تعذر الحذف:", operation, f"تم حذف «{name}»")
+
+    def _offer_deactivation(self, unit, usage):
+        name = unit.get("name")
+        text = (
+            f"العنصر «{name}» مرتبط بـ {usage} سجل(ات) أحبار.\n"
+            "لا يمكن حذفه فعليًا حفاظًا على سجل العمليات."
+        )
+        if not unit.get("is_active"):
+            QMessageBox.warning(self, "تعذر الحذف", text)
+            return
+        box = QMessageBox(QMessageBox.Warning, "تعذر الحذف", text, QMessageBox.NoButton, self)
+        box.setLayoutDirection(Qt.RightToLeft)
+        deactivate = box.addButton("تعطيل الوحدة بدلاً من الحذف", QMessageBox.AcceptRole)
+        box.addButton("إغلاق", QMessageBox.RejectRole)
+        box.exec()
+        if box.clickedButton() is deactivate:
+            self._set_active(unit["id"], False)
+
+    def _export_rows(self):
+        rows = []
+        for unit, level in self._index.walk():
+            parent = self._index.parent_of(unit)
+            rows.append(
                 {
-                    "id": unit_id,
+                    "id": unit["id"],
                     "level": level,
-                    "name": name,
+                    "name": unit.get("name") or UNNAMED,
                     "unit_type": unit.get("unit_type") or "",
-                    "status": "نشط" if bool(unit.get("is_active")) else "معطل",
+                    "status": "نشط" if unit.get("is_active") else "معطل",
                     "parent_name": parent.get("name") if parent else "—",
-                    "descendants": descendant_count(unit_id),
-                    "path": " / ".join(path_parts),
+                    "descendants": self._index.descendant_count(unit["id"]),
+                    "path": self._index.path(unit),
                 }
             )
-            for child in children_by_parent.get(unit_id, []):
-                append_branch(child, level + 1, path_parts)
-
-        root_units = [
-            unit for unit in self._all_units if unit.get("parent_id") not in units_by_id
-        ]
-        for unit in root_units:
-            append_branch(unit, 0, [])
-
-        # Include any disconnected/cyclic records rather than silently omitting them.
-        for unit in self._all_units:
-            if unit["id"] not in visited:
-                append_branch(unit, 0, [])
-
-        return result
+        return rows
 
     def _export_excel(self):
-        if not self._all_units:
+        if not self._units:
             QMessageBox.information(self, "لا توجد بيانات", "لا توجد وحدات لتصديرها.")
             return
 
@@ -1057,95 +1604,17 @@ class OrgStructurePage(QWidget):
             file_path += ".xlsx"
 
         try:
-            from openpyxl import Workbook
-            from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-
-            rows = self._hierarchy_rows_for_export()
-            workbook = Workbook()
-            sheet = workbook.active
-            sheet.title = "الهيكل التنظيمي"
-            sheet.sheet_view.rightToLeft = True
-            sheet.sheet_view.showGridLines = False
-            sheet.sheet_view.zoomScale = 90
-
-            # Report title and total, matching the visual hierarchy in the reference.
-            sheet.merge_cells("A1:D1")
-            title = sheet["A1"]
-            title.value = "الهيكل التنظيمي"
-            title.font = Font(name="Arial", size=16, bold=True, color="FFFFFF")
-            title.fill = PatternFill("solid", fgColor="10263D")
-            title.alignment = Alignment(horizontal="center", vertical="center")
-
-            sheet.merge_cells("A2:D2")
-            total = sheet["A2"]
-            total.value = f"إجمالي الوحدات: {len(rows)}"
-            total.font = Font(name="Arial", size=11, bold=True, color="64748B")
-            total.alignment = Alignment(horizontal="center", vertical="center")
-
-            headers = ["المستوى", "الوحدة التنظيمية", "النوع", "المسار الكامل"]
-            header_row = 3
-            for column, value in enumerate(headers, 1):
-                cell = sheet.cell(header_row, column, value)
-                cell.font = Font(name="Arial", size=11, bold=True, color="FFFFFF")
-                cell.fill = PatternFill("solid", fgColor="1095B0")
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-
-            thin_gray = Side(style="thin", color="D9DEE5")
-            root_fill = PatternFill("solid", fgColor="FFF7E8")
-            for row_index, data in enumerate(rows, header_row + 1):
-                is_root = data["level"] == 0
-                unit_name = data["name"]
-                if is_root:
-                    unit_name = f"{unit_name} — وحدة رئيسية"
-                values = [data["level"], unit_name, data["unit_type"], data["path"]]
-                for column, value in enumerate(values, 1):
-                    cell = sheet.cell(row_index, column, value)
-                    cell.font = Font(
-                        name="Arial",
-                        size=10,
-                        bold=is_root,
-                        color="9A4D18" if is_root else "334155",
-                    )
-                    cell.alignment = Alignment(
-                        horizontal="right" if column in (2, 4) else "center",
-                        vertical="center",
-                        wrap_text=(column == 4),
-                        indent=min(data["level"] * 2, 15) if column == 2 else 0,
-                    )
-                    cell.border = Border(bottom=thin_gray)
-                    if is_root:
-                        cell.fill = root_fill
-                sheet.row_dimensions[row_index].height = 24
-                sheet.row_dimensions[row_index].outlineLevel = min(data["level"], 7)
-
-            for column, width in enumerate((12, 36, 18, 64), 1):
-                sheet.column_dimensions[chr(64 + column)].width = width
-            sheet.row_dimensions[1].height = 32
-            sheet.row_dimensions[2].height = 24
-            sheet.row_dimensions[header_row].height = 28
-            sheet.freeze_panes = "A4"
-            sheet.auto_filter.ref = f"A{header_row}:D{header_row + len(rows)}"
-            sheet.sheet_properties.outlinePr.summaryBelow = True
-            sheet.sheet_properties.pageSetUpPr.fitToPage = True
-            sheet.page_setup.orientation = "landscape"
-            sheet.page_setup.paperSize = sheet.PAPERSIZE_A4
-            sheet.page_setup.fitToWidth = 1
-            sheet.page_setup.fitToHeight = 0
-            sheet.print_title_rows = "1:3"
-
-            workbook.save(file_path)
-            workbook.close()
-            write_audit_log(
-                user=self.current_user,
-                action="تصدير",
-                module_name="الهيكل التنظيمي",
-                description=f"تصدير الهيكل التنظيمي إلى Excel: {Path(file_path).name}",
+            rows = self._export_rows()
+            export_hierarchy_to_excel(file_path, rows)
+            self._audit(
+                "تصدير",
+                f"تصدير الهيكل التنظيمي إلى Excel: {Path(file_path).name}",
                 new_values={
                     "file_name": Path(file_path).name,
                     "record_count": len(rows),
                 },
             )
-            self._show_toast("تم تصدير الشجرة بالكامل إلى Excel بنجاح")
+            self._toast.show_message("تم تصدير الشجرة بالكامل إلى Excel بنجاح")
         except ImportError:
             QMessageBox.critical(
                 self,
@@ -1156,167 +1625,3 @@ class OrgStructurePage(QWidget):
             QMessageBox.critical(
                 self, "خطأ في التصدير", f"تعذر إنشاء ملف Excel:\n{error}"
             )
-
-    # ─────────────── Actions ─────────────────────────────────
-
-    def _get_all_units_list(self):
-        return [dict(u.items()) for u in self._all_units]
-
-    def _add_unit(self):
-        dlg = OrgUnitDialog(self, all_units=self._get_all_units_list())
-        if dlg.exec() != QDialog.Accepted:
-            return
-        data = dlg.get_data()
-        try:
-            conn = get_connection()
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                INSERT INTO dbo.org_units (name, unit_type, parent_id, is_active, sort_order)
-                VALUES (?, ?, ?, 1, 0)
-                """,
-                (data["name"], data["unit_type"], data["parent_id"]),
-            )
-            cursor.execute("SELECT CAST(SCOPE_IDENTITY() AS INT)")
-            inserted = cursor.fetchone()
-            unit_id = inserted[0] if inserted else None
-            conn.commit()
-            conn.close()
-
-            new_values = org_unit_audit_data(
-                {**data, "id": unit_id, "is_active": True},
-                self._all_units,
-            )
-            write_audit_log(
-                user=self.current_user,
-                action="إضافة",
-                module_name="الهيكل التنظيمي",
-                record_id=unit_id,
-                description=f"إضافة عنصر: {data['name']} ({data['unit_type']})",
-                new_values=new_values,
-            )
-
-            self.load_units()
-
-        except Exception as e:
-            QMessageBox.critical(self, "خطأ", f"تعذر الإضافة:\n{e}")
-
-    def _edit_unit(self, unit_dict):
-        dlg = OrgUnitDialog(self, unit=unit_dict, all_units=self._get_all_units_list())
-        if dlg.exec() != QDialog.Accepted:
-            return
-        data = dlg.get_data()
-        old_values = org_unit_audit_data(unit_dict, self._all_units)
-        new_values = org_unit_audit_data(
-            {
-                **data,
-                "id": unit_dict["id"],
-                "is_active": unit_dict.get("is_active", True),
-            },
-            self._all_units,
-        )
-        try:
-            conn = get_connection()
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                UPDATE dbo.org_units
-                SET name = ?, unit_type = ?, parent_id = ?, updated_at = SYSDATETIME()
-                WHERE id = ?
-                """,
-                (data["name"], data["unit_type"], data["parent_id"], unit_dict["id"]),
-            )
-            conn.commit()
-            conn.close()
-
-            write_audit_log(
-                user=self.current_user,
-                action="تعديل",
-                module_name="الهيكل التنظيمي",
-                record_id=unit_dict["id"],
-                description=f"تعديل عنصر ID={unit_dict['id']}: {data['name']}",
-                old_values=old_values,
-                new_values=new_values,
-            )
-
-            self.load_units()
-
-        except Exception as e:
-            QMessageBox.critical(self, "خطأ", f"تعذر التعديل:\n{e}")
-
-    def _delete_unit(self, unit_dict):
-        unit_id = unit_dict["id"]
-        name = unit_dict["name"]
-
-        # هل له سجلات أحبار؟
-        try:
-            conn = get_connection()
-            cursor = conn.cursor()
-            cursor.execute(
-                """
-                SELECT COUNT(*) FROM dbo.ink_transactions
-                WHERE org_unit_id = ? OR office_id = ?
-                """,
-                (unit_id, unit_id),
-            )
-            used = cursor.fetchone()[0]
-
-            # هل له أبناء؟
-            cursor.execute(
-                "SELECT COUNT(*) FROM dbo.org_units WHERE parent_id = ?", (unit_id,)
-            )
-            has_children = cursor.fetchone()[0]
-            conn.close()
-        except Exception as e:
-            QMessageBox.critical(self, "خطأ", f"تعذر الفحص:\n{e}")
-            return
-
-        if has_children > 0:
-            QMessageBox.warning(
-                self,
-                "تعذر الحذف",
-                f"العنصر «{name}» لديه {has_children} عنصر تابع.\n"
-                "يجب حذف العناصر التابعة أولاً أو نقلها.",
-            )
-            return
-
-        if used > 0:
-            QMessageBox.warning(
-                self,
-                "تعذر الحذف",
-                f"العنصر «{name}» مرتبط بـ {used} سجل(ات) أحبار.\n"
-                "لا يمكن حذفه فعليًا حفاظًا على سجل العمليات.",
-            )
-            return
-
-        reply = QMessageBox.question(
-            self,
-            "تأكيد الحذف",
-            f"هل تريد حذف العنصر «{name}» نهائياً؟\n\nلا يمكن التراجع عن هذا الإجراء.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if reply != QMessageBox.Yes:
-            return
-
-        try:
-            conn = get_connection()
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM dbo.org_units WHERE id = ?", (unit_id,))
-            conn.commit()
-            conn.close()
-
-            write_audit_log(
-                user=self.current_user,
-                action="حذف",
-                module_name="الهيكل التنظيمي",
-                record_id=unit_id,
-                description=f"حذف عنصر: {name}",
-                old_values=org_unit_audit_data(unit_dict, self._all_units),
-                new_values={"deleted": True},
-            )
-
-            self.load_units()
-
-        except Exception as e:
-            QMessageBox.critical(self, "خطأ", f"تعذر الحذف:\n{e}")
