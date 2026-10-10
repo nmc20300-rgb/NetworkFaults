@@ -27,13 +27,12 @@ from PySide6.QtWidgets import (
     QFrame,
     QStyle,
     QDateTimeEdit,
+    QDateEdit,
     QSpinBox,
     QCalendarWidget,
     QScrollArea,
-    QMenu,
-    QButtonGroup,
+    QSizePolicy,
 )
-from PySide6.QtGui import QKeySequence, QShortcut
 
 from database import get_connection, write_audit_log
 
@@ -60,7 +59,6 @@ def fault_audit_data(fault):
         "repair_date",
         "delivery_date",
         "notes",
-        "fault_target",
         "created_at",
         "updated_at",
     )
@@ -185,6 +183,19 @@ QComboBox {
 }
 
 QComboBox:focus {
+    border: 1.5px solid #0891b2;
+    background: white;
+}
+
+QDateEdit {
+    background: #fbfdff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 8px 10px;
+    min-width: 0;
+}
+
+QDateEdit:focus {
     border: 1.5px solid #0891b2;
     background: white;
 }
@@ -438,7 +449,7 @@ class FaultDialog(QDialog):
         self.device_specs = QTextEdit()
         self.device_specs.setReadOnly(True)
 
-        self.device_specs.setFixedHeight(88)
+        self.device_specs.setFixedHeight(72)
 
         self.device_specs.setVerticalScrollBarPolicy(
             Qt.ScrollBarAsNeeded
@@ -611,82 +622,6 @@ class FaultDialog(QDialog):
                 3
             )
 
-        self.device_label = QLabel("الجهاز *:")
-        self.device_label.setObjectName("formLabel")
-        self.device_label.setAlignment(
-            Qt.AlignRight | Qt.AlignVCenter
-        )
-
-        self.specs_label = QLabel("مواصفات الجهاز:")
-        self.specs_label.setObjectName("formLabel")
-        self.specs_label.setAlignment(
-            Qt.AlignRight | Qt.AlignTop
-        )
-
-        self.target_label = QLabel("نوع العطل *:")
-        self.target_label.setObjectName("formLabel")
-        self.target_label.setAlignment(
-            Qt.AlignRight | Qt.AlignVCenter
-        )
-
-        # محدد نوع العطل المستهدف: جهاز / طابعة / كلاهما
-        self.target_btn_device = QPushButton("💻  جهاز كمبيوتر")
-        self.target_btn_printer = QPushButton("🖨  طابعة")
-        self.target_btn_both = QPushButton("💻+🖨  جهاز وطابعة")
-
-        target_style = """
-            QPushButton {
-                background: #f8fafc;
-                color: #475569;
-                border: 1px solid #cbd5e1;
-                border-radius: 7px;
-                font-weight: 700;
-                font-size: 12px;
-                padding: 6px 14px;
-            }
-            QPushButton:hover {
-                background: #e2e8f0;
-                color: #0f172a;
-            }
-            QPushButton:checked {
-                background: #0891b2;
-                color: #ffffff;
-                border: 1px solid #0e7490;
-                font-weight: 800;
-            }
-        """
-
-        for btn in (
-            self.target_btn_device,
-            self.target_btn_printer,
-            self.target_btn_both,
-        ):
-            btn.setCheckable(True)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setStyleSheet(target_style)
-
-        self.target_group = QButtonGroup(self)
-        self.target_group.setExclusive(True)
-        self.target_group.addButton(self.target_btn_device, 0)
-        self.target_group.addButton(self.target_btn_printer, 1)
-        self.target_group.addButton(self.target_btn_both, 2)
-        self.target_btn_device.setChecked(True)
-
-        target_box = QHBoxLayout()
-        target_box.setContentsMargins(0, 0, 0, 0)
-        target_box.setSpacing(8)
-        target_box.addWidget(self.target_btn_device)
-        target_box.addWidget(self.target_btn_printer)
-        target_box.addWidget(self.target_btn_both)
-        target_box.addStretch()
-
-        self.target_container = QWidget()
-        self.target_container.setLayout(target_box)
-
-        self.target_group.idClicked.connect(
-            lambda _: self.on_target_changed()
-        )
-
         add_pair(
             0,
             "رقم العطل",
@@ -695,60 +630,22 @@ class FaultDialog(QDialog):
             self.entry_date
         )
 
-        form.addWidget(
-            self.target_label,
+        add_pair(
             1,
-            0
-        )
-        form.addWidget(
-            self.target_container,
-            1,
-            1,
-            1,
-            3
-        )
-
-        form.addWidget(
-            self.device_label,
-            2,
-            0
-        )
-        form.addWidget(
+            "الجهاز *",
             self.device,
-            2,
-            1
-        )
-        bld_label = QLabel("المبنى / الفرع:")
-        bld_label.setObjectName("formLabel")
-        bld_label.setAlignment(
-            Qt.AlignRight | Qt.AlignVCenter
-        )
-        form.addWidget(
-            bld_label,
-            2,
-            2
-        )
-        form.addWidget(
-            self.building,
-            2,
-            3
+            "المبنى / الفرع",
+            self.building
         )
 
-        form.addWidget(
-            self.specs_label,
-            3,
-            0
-        )
-        form.addWidget(
-            self.device_specs,
-            3,
-            1,
-            1,
-            3
+        add_full(
+            2,
+            "مواصفات الجهاز",
+            self.device_specs
         )
 
         add_pair(
-            4,
+            3,
             "اسم المستخدم",
             self.user_name,
             "اسم المستلم",
@@ -756,25 +653,25 @@ class FaultDialog(QDialog):
         )
 
         add_full(
-            5,
+            4,
             "توصيف العطل *",
             self.fault_description
         )
 
         add_full(
-            6,
+            5,
             "إجراءات الإصلاح",
             self.repair_actions
         )
 
         add_full(
-            7,
+            6,
             "قطع الغيار المستخدمة",
             self.spare_part_container
         )
 
         add_pair(
-            8,
+            7,
             "القائم بالإصلاح",
             self.technician,
             "الأولوية",
@@ -782,7 +679,7 @@ class FaultDialog(QDialog):
         )
 
         add_pair(
-            9,
+            8,
             "حالة العطل",
             self.status,
             "تاريخ الإصلاح",
@@ -790,7 +687,7 @@ class FaultDialog(QDialog):
         )
 
         add_full(
-            10,
+            9,
             "تاريخ التسليم",
             self.delivery_date
         )
@@ -823,56 +720,24 @@ class FaultDialog(QDialog):
         if fault:
             self.load_fault()
         else:
-            self.set_target_type("device")
             self.spare_part_qty.setEnabled(True)
 
-    def get_target_type(self):
-        """إرجاع نوع العطل المختار: 'device' أو 'printer' أو 'both'."""
-        if hasattr(self, "target_btn_printer") and self.target_btn_printer.isChecked():
-            return "printer"
-        elif hasattr(self, "target_btn_both") and self.target_btn_both.isChecked():
-            return "both"
-        return "device"
-
-    def set_target_type(self, target):
-        """تعيين نوع العطل المختار وتحديث الواجهة."""
-        if target == "printer":
-            self.target_btn_printer.setChecked(True)
-        elif target == "both":
-            self.target_btn_both.setChecked(True)
-        else:
-            self.target_btn_device.setChecked(True)
-        self.on_target_changed()
-
-    def on_target_changed(self):
-        """تحديث تسميات الحقول والقائمة المنسدلة والمواصفات عند تغيير النوع."""
-        target = self.get_target_type()
-        if hasattr(self, "device_label"):
-            if target == "printer":
-                self.device_label.setText("الطابعة والجهاز *:")
-                self.specs_label.setText("مواصفات الطابعة:")
-            elif target == "both":
-                self.device_label.setText("الجهاز والطابعة *:")
-                self.specs_label.setText("المواصفات المشتركة:")
-            else:
-                self.device_label.setText("الجهاز *:")
-                self.specs_label.setText("مواصفات الجهاز:")
-
-        self.populate_device_combo()
-        self.device_changed()
-
     def select_typed_device(self):
-        typed = self.device.currentText().strip().lower()
+
+        typed = self.device.currentText().strip()
+
         if not typed:
             return
 
-        for i in range(self.device.count()):
-            txt = self.device.itemText(i).strip().lower()
-            if txt == typed or typed in txt:
+        for i in range(
+            self.device.count()
+        ):
+            if self.device.itemText(i).strip() == typed:
                 self.device.setCurrentIndex(i)
                 return
 
     def load_devices(self):
+
         connection = get_connection()
         cursor = connection.cursor()
 
@@ -889,10 +754,6 @@ class FaultDialog(QDialog):
                 devices.monitor,
                 devices.operating_system,
                 devices.printer,
-                devices.device_type,
-                devices.location,
-                devices.lock_number,
-                devices.ip_address,
                 buildings.name AS building_name
             FROM devices
             LEFT JOIN buildings
@@ -901,98 +762,29 @@ class FaultDialog(QDialog):
             ORDER BY devices.device_name
         """)
 
-        self._all_devices = cursor.fetchall()
+        devices = cursor.fetchall()
+
         connection.close()
 
-        self.populate_device_combo()
-
-    def populate_device_combo(self):
-        """تعبئة قائمة الأجهزة بذكاء حسب نوع العطل المختار."""
-        target = self.get_target_type()
-        prev_id = self.device.currentData()
-
-        self.device.blockSignals(True)
         self.device.clear()
 
-        all_devs = getattr(self, "_all_devices", [])
+        self.device.addItem(
+            "اختر الجهاز...",
+            None
+        )
 
-        if target == "printer":
-            self.device.setPlaceholderText("ابحث بطراز الطابعة أو اسم الجهاز...")
-            self.device.addItem("اختر الطابعة / الجهاز...", None)
+        for device in devices:
+            self.device.addItem(
+                device["device_name"],
+                device["id"]
+            )
 
-            # فرز الأجهزة: التي تحتوي على طابعة أولاً مرتبة بطراز الطابعة
-            with_printer = []
-            without_printer = []
-
-            for d in all_devs:
-                pr = (d["printer"] or "").strip()
-                dev_name = (d["device_name"] or "").strip()
-                bld = (d["building_name"] or "").strip()
-                if pr:
-                    with_printer.append((pr, dev_name, bld, d["id"]))
-                else:
-                    without_printer.append(("", dev_name, bld, d["id"]))
-
-            with_printer.sort(key=lambda x: x[0].lower())
-
-            for pr, dev_name, bld, dev_id in with_printer:
-                bld_tag = f" — [{bld}]" if bld else ""
-                self.device.addItem(
-                    f"🖨 {pr}   |   الجهاز: {dev_name}{bld_tag}",
-                    dev_id
-                )
-
-            if without_printer:
-                for _, dev_name, bld, dev_id in without_printer:
-                    bld_tag = f" — [{bld}]" if bld else ""
-                    self.device.addItem(
-                        f"💻 {dev_name}{bld_tag} (بدون طابعة مسجلة)",
-                        dev_id
-                    )
-
-        elif target == "both":
-            self.device.setPlaceholderText("ابحث باسم الجهاز أو طراز الطابعة...")
-            self.device.addItem("اختر الجهاز والطابعة...", None)
-
-            for d in all_devs:
-                dev_name = (d["device_name"] or "").strip()
-                pr = (d["printer"] or "").strip()
-                bld = (d["building_name"] or "").strip()
-                bld_tag = f" — [{bld}]" if bld else ""
-                pr_tag = f" + 🖨 {pr}" if pr else ""
-                self.device.addItem(
-                    f"💻 {dev_name}{pr_tag}{bld_tag}",
-                    d["id"]
-                )
-
-        else:  # "device"
-            self.device.setPlaceholderText("اكتب اسم الجهاز للبحث أو اختر من القائمة...")
-            self.device.addItem("اختر الجهاز...", None)
-
-            for d in all_devs:
-                dev_name = (d["device_name"] or "").strip()
-                bld = (d["building_name"] or "").strip()
-                bld_tag = f" — [{bld}]" if bld else ""
-                self.device.addItem(
-                    f"💻 {dev_name}{bld_tag}",
-                    d["id"]
-                )
-
-        if self.device.completer():
-            self.device.completer().setModel(self.device.model())
-
-        if prev_id:
-            idx = self.device.findData(prev_id)
-            if idx >= 0:
-                self.device.setCurrentIndex(idx)
-            else:
-                self.device.setCurrentIndex(0)
-        else:
-            self.device.setCurrentIndex(0)
-
-        self.device.blockSignals(False)
+        self.device.completer().setModel(
+            self.device.model()
+        )
 
     def load_spare_parts(self):
+
         connection = get_connection()
         cursor = connection.cursor()
 
@@ -1008,21 +800,27 @@ class FaultDialog(QDialog):
         """)
 
         parts = cursor.fetchall()
+
         connection.close()
 
         self.spare_part.clear()
+
         self.spare_part.addItem(
             "بدون قطعة غيار",
             None
         )
 
         for part in parts:
+
             label = (
                 f"{part['part_name']} | "
                 f"المتاح: {part['quantity']}"
             )
+
             if part["part_number"]:
-                label += f" | {part['part_number']}"
+                label += (
+                    f" | {part['part_number']}"
+                )
 
             self.spare_part.addItem(
                 label,
@@ -1030,6 +828,7 @@ class FaultDialog(QDialog):
             )
 
     def device_changed(self):
+
         device_id = self.device.currentData()
 
         if not device_id:
@@ -1038,26 +837,22 @@ class FaultDialog(QDialog):
             self.device_specs.clear()
             return
 
-        device = None
-        for d in getattr(self, "_all_devices", []):
-            if d["id"] == device_id:
-                device = d
-                break
+        connection = get_connection()
+        cursor = connection.cursor()
 
-        if not device:
-            connection = get_connection()
-            cursor = connection.cursor()
-            cursor.execute("""
-                SELECT
-                    devices.*,
-                    buildings.name AS building_name
-                FROM devices
-                LEFT JOIN buildings
-                    ON devices.building_id = buildings.id
-                WHERE devices.id = ?
-            """, (device_id,))
-            device = cursor.fetchone()
-            connection.close()
+        cursor.execute("""
+            SELECT
+                devices.*,
+                buildings.name AS building_name
+            FROM devices
+            LEFT JOIN buildings
+                ON devices.building_id = buildings.id
+            WHERE devices.id = ?
+        """, (device_id,))
+
+        device = cursor.fetchone()
+
+        connection.close()
 
         if not device:
             return
@@ -1070,53 +865,25 @@ class FaultDialog(QDialog):
             device["user_name"] or ""
         )
 
-        target = self.get_target_type()
-        printer_model = (device["printer"] or "").strip()
-        dev_name = device["device_name"] or "-"
-        processor = device["processor"] or "-"
-        ram = device["ram"] or "-"
-        hard = device["hard_disk"] or "-"
-        monitor = device["monitor"] or "-"
-        os_sys = device["operating_system"] or "-"
-        loc = device["location"] or "-"
-        b_name = device["building_name"] or "-"
-        dev_type = device["device_type"] or "كمبيوتر"
+        specs = (
+            f"النوع: {device['device_type'] or '-'}\n"
+            f"المعالج: {device['processor'] or '-'}\n"
+            f"RAM: {device['ram'] or '-'}\n"
+            f"الهارد: {device['hard_disk'] or '-'}\n"
+            f"Serial: {device['serial_number'] or '-'}\n"
+            f"الشاشة: {device['monitor'] or '-'}\n"
+            f"النظام: {device['operating_system'] or '-'}\n"
+            f"الطابعة: {device['printer'] or '-'}"
+        )
 
-        if target == "printer":
-            # في وضع الطابعة: يظهر طراز الطابعة أولاً وبشكل بارز
-            printer_display = printer_model if printer_model else "⚠️ لا توجد طابعة مسجلة في بيانات هذا الجهاز"
-            specs = (
-                f"🖨️  طراز الطابعة: {printer_display}\n"
-                f"🏢  المبنى / المكان: {b_name} | {loc}\n"
-                f"👤  المستخدم: {device['user_name'] or '-'}\n"
-                f"💻  الجهاز المرتبط: {dev_name}\n"
-                f"⚙️  نظام التشغيل: {os_sys}"
-            )
-        elif target == "both":
-            # في وضع كلاهما: يظهر طراز الطابعة ومواصفات الجهاز معاً
-            printer_display = printer_model if printer_model else "لا توجد طابعة مسجلة"
-            specs = (
-                f"🖨️  طراز الطابعة: {printer_display}\n"
-                f"💻  الجهاز: {dev_name} ({dev_type})\n"
-                f"⚙️  المعالج: {processor} | RAM: {ram} | الهارد: {hard}\n"
-                f"🖥️  الشاشة: {monitor} | النظام: {os_sys}\n"
-                f"🏢  الموقع: {b_name} - {loc}"
-            )
-        else:
-            # في وضع الجهاز: تظهر مواصفات الجهاز أولاً
-            printer_info = f" | الطابعة: {printer_model}" if printer_model else ""
-            specs = (
-                f"💻  الجهاز: {dev_name} (النوع: {dev_type})\n"
-                f"⚙️  المعالج: {processor} | RAM: {ram}\n"
-                f"💾  الهارد: {hard} | الشاشة: {monitor}\n"
-                f"💿  النظام: {os_sys}\n"
-                f"🏢  المبنى / المكان: {b_name} - {loc}{printer_info}"
-            )
-
-        self.device_specs.setPlainText(specs)
+        self.device_specs.setPlainText(
+            specs
+        )
 
     def generate_fault_number(self):
+
         year = datetime.now().year
+
         connection = get_connection()
         cursor = connection.cursor()
 
@@ -1127,50 +894,62 @@ class FaultDialog(QDialog):
         )
 
         count = cursor.fetchone()[0]
+
         connection.close()
 
-        return f"FLT-{year}-{count + 1:04d}"
+        return (
+            f"FLT-{year}-{count + 1:04d}"
+        )
 
     def validate_and_accept(self):
+
         if not self.device.currentData():
-            target = self.get_target_type()
-            msg = "من فضلك اختر الطابعة / الجهاز." if target == "printer" else "من فضلك اختر الجهاز."
-            QMessageBox.warning(self, "تنبيه", msg)
+
+            QMessageBox.warning(
+                self,
+                "تنبيه",
+                "من فضلك اختر الجهاز."
+            )
+
             self.device.setFocus()
             return
 
         if not self.fault_description.toPlainText().strip():
+
             QMessageBox.warning(
                 self,
                 "تنبيه",
                 "من فضلك اكتب توصيف العطل."
             )
+
             self.fault_description.setFocus()
             return
 
         self.accept()
 
     def get_data(self):
+
         building_id = None
         device_id = self.device.currentData()
 
         if device_id:
+
             connection = get_connection()
             cursor = connection.cursor()
+
             cursor.execute(
                 "SELECT building_id FROM devices WHERE id = ?",
                 (device_id,)
             )
+
             result = cursor.fetchone()
+
             connection.close()
 
             if result:
                 building_id = result["building_id"]
 
         return {
-            "fault_target":
-                self.get_target_type(),
-
             "fault_number":
                 self.fault_number.text(),
 
@@ -1239,6 +1018,7 @@ class FaultDialog(QDialog):
         }
 
     def load_fault(self):
+
         self.fault_number.setText(
             self.fault["fault_number"]
         )
@@ -1249,12 +1029,6 @@ class FaultDialog(QDialog):
                 "%Y-%m-%d %H:%M:%S"
             )
         )
-
-        # تحميل نوع العطل المستهدف
-        target = "device"
-        if "fault_target" in self.fault.keys() and self.fault["fault_target"]:
-            target = self.fault["fault_target"]
-        self.set_target_type(target)
 
         index = self.device.findData(
             self.fault["device_id"]
@@ -2166,6 +1940,7 @@ class FaultsPage(QWidget):
         self.setup_ui()
 
         self.load_building_filter()
+        self.load_technician_filter()
 
         self.load_faults()
 
@@ -2292,27 +2067,6 @@ class FaultsPage(QWidget):
             self.delete_fault
         )
 
-        self.select_all_button = QPushButton(
-            "☑  تحديد الكل"
-        )
-        self.select_all_button.setObjectName(
-            "secondaryButton"
-        )
-        self.select_all_button.clicked.connect(
-            self.toggle_select_all
-        )
-
-        self.selection_label = QLabel("")
-
-        self.selection_label.setStyleSheet(
-            "color: #0891b2; font-weight: 700;"
-            " padding: 4px 8px;"
-            " background: #e0f2fe;"
-            " border-radius: 6px;"
-        )
-
-        self.selection_label.setVisible(False)
-
         title_layout.addWidget(
             self.add_button
         )
@@ -2323,14 +2077,6 @@ class FaultsPage(QWidget):
 
         title_layout.addWidget(
             self.delete_button
-        )
-
-        title_layout.addWidget(
-            self.select_all_button
-        )
-
-        title_layout.addWidget(
-            self.selection_label
         )
 
         title_layout.addWidget(
@@ -2394,36 +2140,87 @@ class FaultsPage(QWidget):
             search_card
         )
 
+        # =============================================================
+        # إحصائيات الصيانة
+        # =============================================================
+
+        stats_card = QFrame()
+        stats_card.setObjectName("filterCard")
+        stats_layout = QHBoxLayout(stats_card)
+        stats_layout.setContentsMargins(12, 10, 12, 10)
+        stats_layout.setSpacing(10)
+
+        self.fault_stat_labels = {}
+
+        stat_items = [
+            ("total", "إجمالي الأعطال"),
+            ("serviced", "أجهزة تمت صيانتها"),
+            ("repaired", "تم الإصلاح"),
+            ("delivered", "تم التسليم"),
+            ("technicians", "القائمون بالإصلاح"),
+        ]
+
+        for key, title_text in stat_items:
+            card = QFrame()
+            card.setStyleSheet(
+                "QFrame { background:#f8fafc; border:1px solid #e2e8f0; "
+                "border-radius:10px; }"
+            )
+            card_layout = QVBoxLayout(card)
+            card_layout.setContentsMargins(12, 8, 12, 8)
+            card_layout.setSpacing(2)
+
+            title_label = QLabel(title_text)
+            title_label.setStyleSheet(
+                "color:#64748b; font-size:11px; font-weight:700; border:none;"
+            )
+            value_label = QLabel("0")
+            value_label.setAlignment(Qt.AlignCenter)
+            value_label.setStyleSheet(
+                "color:#0f2338; font-size:20px; font-weight:800; border:none;"
+            )
+
+            card_layout.addWidget(title_label)
+            card_layout.addWidget(value_label)
+            stats_layout.addWidget(card, 1)
+            self.fault_stat_labels[key] = value_label
+
+        main_layout.addWidget(stats_card)
+
+        # ---------------------------------------------------------
+        # فلاتر الأعطال
+        # تصميم الفلاتر على صفين لتجنب تكدس العناصر وضيقها
+        # ---------------------------------------------------------
         filter_card = QFrame()
+        filter_card.setObjectName("filterCard")
 
-        filter_card.setObjectName(
-            "filterCard"
-        )
+        filter_layout = QGridLayout(filter_card)
+        filter_layout.setContentsMargins(14, 12, 14, 12)
+        filter_layout.setHorizontalSpacing(12)
+        filter_layout.setVerticalSpacing(10)
 
-        filter_layout = QHBoxLayout(
-            filter_card
-        )
+        def add_filter_field(row, column, label_text, widget):
+            field = QWidget()
+            field_layout = QVBoxLayout(field)
+            field_layout.setContentsMargins(0, 0, 0, 0)
+            field_layout.setSpacing(4)
 
-        filter_layout.setContentsMargins(
-            14, 10, 14, 10
-        )
+            label = QLabel(label_text)
+            label.setObjectName("filterLabel")
+            label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        filter_layout.setSpacing(10)
+            widget.setMinimumWidth(0)
+            widget.setSizePolicy(
+                QSizePolicy.Expanding,
+                QSizePolicy.Fixed,
+            )
+            widget.setMinimumHeight(38)
 
-        status_label = QLabel(
-            "الحالة:"
-        )
-
-        status_label.setObjectName(
-            "filterLabel"
-        )
-
-        filter_layout.addWidget(
-            status_label
-        )
+            field_layout.addWidget(label)
+            field_layout.addWidget(widget)
+            filter_layout.addWidget(field, row, column)
 
         self.status_filter = QComboBox()
-
         self.status_filter.addItems([
             "كل الحالات",
             "جديد",
@@ -2431,90 +2228,87 @@ class FaultsPage(QWidget):
             "قيد الإصلاح",
             "بانتظار قطعة غيار",
             "تم الإصلاح",
-            "تم التسليم"
+            "تم التسليم",
         ])
-
         self.status_filter.currentIndexChanged.connect(
             self._reset_page_and_load_faults
         )
 
-        filter_layout.addWidget(
-            self.status_filter
-        )
-
-        priority_label = QLabel(
-            "الأولوية:"
-        )
-
-        priority_label.setObjectName(
-            "filterLabel"
-        )
-
-        filter_layout.addWidget(
-            priority_label
-        )
-
         self.priority_filter = QComboBox()
-
         self.priority_filter.addItems([
             "كل الأولويات",
             "عادي",
             "متوسط",
             "عاجل",
-            "حرج"
+            "حرج",
         ])
-
         self.priority_filter.currentIndexChanged.connect(
             self._reset_page_and_load_faults
         )
 
-        filter_layout.addWidget(
-            self.priority_filter
-        )
-
-        building_label = QLabel(
-            "المبنى:"
-        )
-
-        building_label.setObjectName(
-            "filterLabel"
-        )
-
-        filter_layout.addWidget(
-            building_label
-        )
-
         self.building_filter = QComboBox()
-
-        self.building_filter.setMinimumWidth(
-            180
-        )
-
         self.building_filter.currentIndexChanged.connect(
             self._reset_page_and_load_faults
         )
 
-        filter_layout.addWidget(
-            self.building_filter
+        self.technician_filter = QComboBox()
+        self.technician_filter.currentIndexChanged.connect(
+            self._reset_page_and_load_faults
         )
 
-        self.clear_filters_button = QPushButton(
-            "✕  مسح الفلاتر"
+        self.date_from_filter = QDateEdit()
+        self.date_from_filter.setCalendarPopup(True)
+        self.date_from_filter.setDisplayFormat("dd/MM/yyyy")
+        self.date_from_filter.setSpecialValueText("كل التواريخ")
+        self.date_from_filter.setDate(self.date_from_filter.minimumDate())
+        self.date_from_filter.dateChanged.connect(
+            self._reset_page_and_load_faults
         )
 
-        self.clear_filters_button.setObjectName(
-            "clearFilterButton"
+        self.date_to_filter = QDateEdit()
+        self.date_to_filter.setCalendarPopup(True)
+        self.date_to_filter.setDisplayFormat("dd/MM/yyyy")
+        self.date_to_filter.setSpecialValueText("كل التواريخ")
+        self.date_to_filter.setDate(self.date_to_filter.minimumDate())
+        self.date_to_filter.dateChanged.connect(
+            self._reset_page_and_load_faults
         )
 
+        add_filter_field(0, 0, "الحالة", self.status_filter)
+        add_filter_field(0, 1, "الأولوية", self.priority_filter)
+        add_filter_field(0, 2, "المبنى", self.building_filter)
+        add_filter_field(0, 3, "القائم بالإصلاح", self.technician_filter)
+        add_filter_field(1, 0, "من تاريخ", self.date_from_filter)
+        add_filter_field(1, 1, "إلى تاريخ", self.date_to_filter)
+
+        self.clear_filters_button = QPushButton("✕  مسح الفلاتر")
+        self.clear_filters_button.setObjectName("clearFilterButton")
+        self.clear_filters_button.setMinimumHeight(38)
+        self.clear_filters_button.setSizePolicy(
+            QSizePolicy.Expanding,
+            QSizePolicy.Fixed,
+        )
         self.clear_filters_button.clicked.connect(
             self.clear_fault_filters
         )
 
-        filter_layout.addWidget(
-            self.clear_filters_button
-        )
+        clear_container = QWidget()
+        clear_layout = QVBoxLayout(clear_container)
+        clear_layout.setContentsMargins(0, 0, 0, 0)
+        clear_layout.setSpacing(4)
 
-        filter_layout.addStretch()
+        clear_label = QLabel("إجراءات")
+        clear_label.setObjectName("filterLabel")
+        clear_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        clear_layout.addWidget(clear_label)
+        clear_layout.addWidget(self.clear_filters_button)
+
+        filter_layout.addWidget(clear_container, 1, 2)
+
+        filter_layout.setColumnStretch(0, 1)
+        filter_layout.setColumnStretch(1, 1)
+        filter_layout.setColumnStretch(2, 1)
+        filter_layout.setColumnStretch(3, 1)
 
         main_layout.addWidget(
             filter_card
@@ -2542,7 +2336,7 @@ class FaultsPage(QWidget):
             "ID",
             "رقم العطل",
             "التاريخ",
-            "الجهاز / الطابعة",
+            "الجهاز",
             "المستخدم",
             "الحالة",
             "الأولوية",
@@ -2554,25 +2348,7 @@ class FaultsPage(QWidget):
         )
 
         self.table.setSelectionMode(
-            QTableWidget.MultiSelection
-        )
-
-        self.table.itemSelectionChanged.connect(
-            self._on_fault_selection_changed
-        )
-
-        self.table.setContextMenuPolicy(
-            Qt.CustomContextMenu
-        )
-        self.table.customContextMenuRequested.connect(
-            self._show_context_menu
-        )
-
-        QShortcut(
-            QKeySequence(Qt.Key_Escape),
-            self.table
-        ).activated.connect(
-            self.table.clearSelection
+            QTableWidget.SingleSelection
         )
 
         self.table.setEditTriggers(
@@ -2854,6 +2630,49 @@ class FaultsPage(QWidget):
             )
 
     # =============================================================
+    # تحميل فلتر القائم بالإصلاح
+    # =============================================================
+
+    def load_technician_filter(self):
+
+        current_value = (
+            self.technician_filter.currentData()
+            if self.technician_filter.count() > 0
+            else None
+        )
+
+        connection = get_connection()
+        cursor = connection.cursor()
+
+        try:
+            cursor.execute("""
+                SELECT DISTINCT LTRIM(RTRIM(technician)) AS technician
+                FROM faults
+                WHERE technician IS NOT NULL
+                  AND LTRIM(RTRIM(technician)) <> ''
+                ORDER BY LTRIM(RTRIM(technician))
+            """)
+            technicians = cursor.fetchall()
+        finally:
+            connection.close()
+
+        self.technician_filter.blockSignals(True)
+        try:
+            self.technician_filter.clear()
+            self.technician_filter.addItem("كل القائمين بالإصلاح", None)
+            for row in technicians:
+                name = row["technician"]
+                self.technician_filter.addItem(name, name)
+
+            if current_value:
+                index = self.technician_filter.findData(current_value)
+                self.technician_filter.setCurrentIndex(index if index >= 0 else 0)
+            else:
+                self.technician_filter.setCurrentIndex(0)
+        finally:
+            self.technician_filter.blockSignals(False)
+
+    # =============================================================
     # مسح الفلاتر
     # =============================================================
 
@@ -2863,6 +2682,9 @@ class FaultsPage(QWidget):
         self.status_filter.blockSignals(True)
         self.priority_filter.blockSignals(True)
         self.building_filter.blockSignals(True)
+        self.technician_filter.blockSignals(True)
+        self.date_from_filter.blockSignals(True)
+        self.date_to_filter.blockSignals(True)
 
         self.search_box.clear()
 
@@ -2877,11 +2699,17 @@ class FaultsPage(QWidget):
         self.building_filter.setCurrentIndex(
             0
         )
+        self.technician_filter.setCurrentIndex(0)
+        self.date_from_filter.setDate(self.date_from_filter.minimumDate())
+        self.date_to_filter.setDate(self.date_to_filter.minimumDate())
 
         self.search_box.blockSignals(False)
         self.status_filter.blockSignals(False)
         self.priority_filter.blockSignals(False)
         self.building_filter.blockSignals(False)
+        self.technician_filter.blockSignals(False)
+        self.date_from_filter.blockSignals(False)
+        self.date_to_filter.blockSignals(False)
 
         self._page = 0
 
@@ -3577,6 +3405,7 @@ class FaultsPage(QWidget):
             # القائمة الآن تعتمد على جدول buildings
             # وليس على وجود أعطال.
             self.load_building_filter()
+            self.load_technician_filter()
 
             self.load_faults()
 
@@ -3689,6 +3518,42 @@ class FaultsPage(QWidget):
             else None
         )
 
+        technician = (
+            self.technician_filter.currentData()
+            if hasattr(
+                self,
+                "technician_filter"
+            )
+            else None
+        )
+
+        date_from = (
+            self.date_from_filter.date().toString("yyyy-MM-dd")
+            if hasattr(self, "date_from_filter")
+            and self.date_from_filter.date() != self.date_from_filter.minimumDate()
+            else None
+        )
+
+        date_to = (
+            self.date_to_filter.date().toString("yyyy-MM-dd")
+            if hasattr(self, "date_to_filter")
+            and self.date_to_filter.date() != self.date_to_filter.minimumDate()
+            else None
+        )
+
+        if date_from and date_to and date_from > date_to:
+            date_from, date_to = date_to, date_from
+            self.date_from_filter.blockSignals(True)
+            self.date_to_filter.blockSignals(True)
+            self.date_from_filter.setDate(
+                self.date_from_filter.date().fromString(date_from, "yyyy-MM-dd")
+            )
+            self.date_to_filter.setDate(
+                self.date_to_filter.date().fromString(date_to, "yyyy-MM-dd")
+            )
+            self.date_from_filter.blockSignals(False)
+            self.date_to_filter.blockSignals(False)
+
         connection = get_connection()
         cursor = connection.cursor()
 
@@ -3696,7 +3561,6 @@ class FaultsPage(QWidget):
             SELECT
                 faults.*,
                 devices.device_name,
-                devices.printer,
                 buildings.name AS building_name
             FROM faults
             LEFT JOIN devices
@@ -3714,7 +3578,6 @@ class FaultsPage(QWidget):
                 AND (
                     faults.fault_number LIKE ?
                     OR devices.device_name LIKE ?
-                    OR devices.printer LIKE ?
                     OR faults.user_name LIKE ?
                     OR faults.receiver_name LIKE ?
                     OR faults.technician LIKE ?
@@ -3725,7 +3588,6 @@ class FaultsPage(QWidget):
             keyword = f"%{search}%"
 
             params.extend([
-                keyword,
                 keyword,
                 keyword,
                 keyword,
@@ -3763,6 +3625,24 @@ class FaultsPage(QWidget):
             params.append(
                 building_id
             )
+
+        if technician:
+            query += """
+                AND LTRIM(RTRIM(faults.technician)) = ?
+            """
+            params.append(technician)
+
+        if date_from:
+            query += """
+                AND faults.repair_date >= ?
+            """
+            params.append(date_from)
+
+        if date_to:
+            query += """
+                AND faults.repair_date < DATEADD(day, 1, ?)
+            """
+            params.append(date_to)
 
         query += """
             ORDER BY faults.id DESC
@@ -3812,22 +3692,11 @@ class FaultsPage(QWidget):
 
             self.table.insertRow(row)
 
-            target = fault["fault_target"] or "device"
-            device_name = fault["device_name"] or ""
-            printer_name = (fault["printer"] or "").strip()
-
-            if target == "printer":
-                display_device = f"🖨 {printer_name}" if printer_name else f"🖨 {device_name}"
-            elif target == "both":
-                display_device = f"💻 {device_name} + 🖨"
-            else:
-                display_device = f"💻 {device_name}"
-
             values = [
                 fault["id"],
                 fault["fault_number"],
                 fault["entry_date"],
-                display_device,
+                fault["device_name"] or "",
                 fault["user_name"] or "",
                 fault["status"] or "",
                 fault["priority"] or "",
@@ -3868,6 +3737,95 @@ class FaultsPage(QWidget):
             f"إجمالي الأعطال: {self._total}  |  "
             f"المعروض في الصفحة: {len(visible_faults)}"
         )
+
+        self.load_fault_statistics()
+
+    def load_fault_statistics(self):
+        """تحديث إحصائيات الصيانة وفق الفلاتر الحالية."""
+        search = self.search_box.text().strip() if hasattr(self, "search_box") else ""
+        status = self.status_filter.currentText() if hasattr(self, "status_filter") else "كل الحالات"
+        priority = self.priority_filter.currentText() if hasattr(self, "priority_filter") else "كل الأولويات"
+        building_id = self.building_filter.currentData() if hasattr(self, "building_filter") else None
+        technician = self.technician_filter.currentData() if hasattr(self, "technician_filter") else None
+        date_from = self.date_from_filter.date().toString("yyyy-MM-dd") if hasattr(self, "date_from_filter") and self.date_from_filter.date() != self.date_from_filter.minimumDate() else None
+        date_to = self.date_to_filter.date().toString("yyyy-MM-dd") if hasattr(self, "date_to_filter") and self.date_to_filter.date() != self.date_to_filter.minimumDate() else None
+
+        query = """
+            FROM faults
+            LEFT JOIN devices ON faults.device_id = devices.id
+            LEFT JOIN buildings ON faults.building_id = buildings.id
+            WHERE 1 = 1
+        """
+        params = []
+
+        if search:
+            query += """
+                AND (faults.fault_number LIKE ? OR devices.device_name LIKE ?
+                OR devices.printer LIKE ? OR faults.user_name LIKE ?
+                OR faults.receiver_name LIKE ? OR faults.technician LIKE ?
+                OR buildings.name LIKE ?)
+            """
+            keyword = f"%{search}%"
+            params.extend([keyword] * 7)
+        if status != "كل الحالات":
+            query += " AND faults.status = ?"
+            params.append(status)
+        if priority != "كل الأولويات":
+            query += " AND faults.priority = ?"
+            params.append(priority)
+        if building_id:
+            query += " AND faults.building_id = ?"
+            params.append(building_id)
+        if technician:
+            query += " AND LTRIM(RTRIM(faults.technician)) = ?"
+            params.append(technician)
+        if date_from:
+            query += " AND faults.repair_date >= ?"
+            params.append(date_from)
+        if date_to:
+            query += " AND faults.repair_date < DATEADD(day, 1, ?)"
+            params.append(date_to)
+
+        connection = get_connection()
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                "SELECT COUNT(*) " + query,
+                params
+            )
+            total = cursor.fetchone()[0] or 0
+
+            cursor.execute(
+                "SELECT COUNT(DISTINCT CASE WHEN faults.status IN ('تم الإصلاح', 'تم التسليم') THEN faults.device_id END) " + query,
+                params
+            )
+            serviced = cursor.fetchone()[0] or 0
+
+            cursor.execute(
+                "SELECT COUNT(*) " + query + " AND faults.status = 'تم الإصلاح'",
+                params
+            )
+            repaired = cursor.fetchone()[0] or 0
+
+            cursor.execute(
+                "SELECT COUNT(*) " + query + " AND faults.status = 'تم التسليم'",
+                params
+            )
+            delivered = cursor.fetchone()[0] or 0
+
+            cursor.execute(
+                "SELECT COUNT(DISTINCT NULLIF(LTRIM(RTRIM(faults.technician)), '')) " + query,
+                params
+            )
+            technicians = cursor.fetchone()[0] or 0
+        finally:
+            connection.close()
+
+        self.fault_stat_labels["total"].setText(str(total))
+        self.fault_stat_labels["serviced"].setText(str(serviced))
+        self.fault_stat_labels["repaired"].setText(str(repaired))
+        self.fault_stat_labels["delivered"].setText(str(delivered))
+        self.fault_stat_labels["technicians"].setText(str(technicians))
 
     # =============================================================
     # إضافة عطل
@@ -3986,13 +3944,12 @@ class FaultsPage(QWidget):
                 priority,
                 status,
                 repair_date,
-                delivery_date,
-                fault_target
+                delivery_date
             )
             VALUES (
                 ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?,
-                ?, ?, ?
+                ?, ?
             )
             """,
             (
@@ -4010,7 +3967,6 @@ class FaultsPage(QWidget):
                 data["status"],
                 data["repair_date"],
                 data["delivery_date"],
-                data.get("fault_target", "device"),
             )
         )
 
@@ -4119,6 +4075,7 @@ class FaultsPage(QWidget):
         # لذلك سيظل يعرض كل المباني حتى لو لم يكن
         # بها أي أعطال.
         self.load_building_filter()
+        self.load_technician_filter()
 
         self.load_faults()
 
@@ -4409,7 +4366,6 @@ class FaultsPage(QWidget):
                     repair_date = ?,
                     delivery_date = ?,
                     notes = ?,
-                    fault_target = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
@@ -4430,10 +4386,6 @@ class FaultsPage(QWidget):
                     data.get(
                         "notes",
                         ""
-                    ),
-                    data.get(
-                        "fault_target",
-                        "device"
                     ),
                     fault_id,
                 )
@@ -4486,6 +4438,7 @@ class FaultsPage(QWidget):
 
             # تحديث قائمة المباني من جدول buildings.
             self.load_building_filter()
+            self.load_technician_filter()
 
             self.load_faults()
 
@@ -4511,107 +4464,6 @@ class FaultsPage(QWidget):
     # حذف عطل
     # =============================================================
 
-    def toggle_select_all(self):
-        """تحديد أو إلغاء تحديد كل العناصر بضغطة زر واحدة ذكية."""
-        selected_count = len(
-            set(idx.row() for idx in self.table.selectedIndexes())
-        )
-        total_rows = self.table.rowCount()
-        if total_rows == 0:
-            return
-
-        if selected_count >= total_rows:
-            self.table.clearSelection()
-        else:
-            self.table.selectAll()
-
-    def _on_fault_selection_changed(self):
-        """تحديث عداد التحديد والزر الذكي وزر الحذف عند تغيير الصفوف المختارة."""
-        selected_rows = len(
-            set(
-                idx.row()
-                for idx in
-                self.table.selectedIndexes()
-            )
-        )
-        total_rows = self.table.rowCount()
-
-        if hasattr(self, "select_all_button"):
-            if total_rows > 0 and selected_rows >= total_rows:
-                self.select_all_button.setText("☐  إلغاء التحديد")
-            else:
-                self.select_all_button.setText("☑  تحديد الكل")
-
-        if selected_rows > 0:
-            self.selection_label.setText(
-                f"✔ {selected_rows} محدد"
-            )
-            self.selection_label.setVisible(True)
-            if selected_rows > 1:
-                self.delete_button.setText(f"  حذف ({selected_rows})")
-            else:
-                self.delete_button.setText("  حذف")
-        else:
-            self.selection_label.setVisible(False)
-            self.delete_button.setText("  حذف")
-
-    def _show_context_menu(self, pos):
-        """قائمة كليك يمين أنيقة للجدول بدون زحمة أزرار في الواجهة."""
-        menu = QMenu(self)
-        menu.setStyleSheet("""
-            QMenu {
-                background: white;
-                border: 1px solid #cbd5e1;
-                border-radius: 8px;
-                padding: 4px;
-                font-size: 12px;
-            }
-            QMenu::item {
-                padding: 6px 20px;
-                border-radius: 4px;
-            }
-            QMenu::item:selected {
-                background: #e0f2fe;
-                color: #0369a1;
-            }
-        """)
-
-        act_select_all = menu.addAction("☑  تحديد الكل")
-        act_select_all.triggered.connect(self.table.selectAll)
-
-        act_deselect = menu.addAction("☐  إلغاء التحديد")
-        act_deselect.triggered.connect(self.table.clearSelection)
-
-        selected_count = len(
-            set(idx.row() for idx in self.table.selectedIndexes())
-        )
-        if selected_count > 0:
-            menu.addSeparator()
-            act_delete = menu.addAction(f"🗑  حذف المحدد ({selected_count})")
-            act_delete.triggered.connect(self.delete_fault)
-
-        menu.exec(self.table.viewport().mapToGlobal(pos))
-
-    def _get_selected_fault_ids(self):
-        """إرجاع قائمة بمعرّفات (IDs) جميع الصفوف المحددة."""
-        rows = set(
-            idx.row()
-            for idx in
-            self.table.selectedIndexes()
-        )
-
-        ids = []
-
-        for row in sorted(rows):
-            item = self.table.item(row, 0)
-            if item:
-                try:
-                    ids.append(int(item.text()))
-                except ValueError:
-                    pass
-
-        return ids
-
     def delete_fault(self):
 
         if not self.has_permission(
@@ -4626,62 +4478,62 @@ class FaultsPage(QWidget):
 
             return
 
-        fault_ids = self._get_selected_fault_ids()
+        selected = self.table.selectedItems()
 
-        if not fault_ids:
+        if not selected:
 
             QMessageBox.information(
                 self,
                 "تنبيه",
-                "اختر عطلًا أو أكثر أولًا."
+                "اختر عطلًا أولًا."
             )
 
             return
 
-        count = len(fault_ids)
+        row = selected[0].row()
 
-        msg = (
-            f"هل أنت متأكد من حذف {count} عطل محدد؟\n\n"
-            "إذا كان قد تم صرف قطعة غيار لأي منها، "
-            "سيتم إرجاع الكمية للمخزن تلقائيًا."
-        ) if count > 1 else None
+        fault_id = int(
+            self.table.item(
+                row,
+                0
+            ).text()
+        )
 
         connection = get_connection()
         cursor = connection.cursor()
 
-        # عند تحديد عطل واحد فقط، نعرض رقم العطل في رسالة التأكيد
-        if count == 1:
+        cursor.execute(
+            "SELECT * FROM faults WHERE id = ?",
+            (
+                fault_id,
+            )
+        )
 
-            cursor.execute(
-                "SELECT * FROM faults WHERE id = ?",
-                (fault_ids[0],)
+        fault = cursor.fetchone()
+
+        old_values = fault_audit_data(
+            fault
+        )
+
+        if not fault:
+
+            connection.close()
+
+            QMessageBox.warning(
+                self,
+                "تنبيه",
+                "العطل غير موجود."
             )
 
-            single_fault = cursor.fetchone()
-
-            if not single_fault:
-
-                connection.close()
-
-                QMessageBox.warning(
-                    self,
-                    "تنبيه",
-                    "العطل غير موجود."
-                )
-
-                return
-
-            msg = (
-                f"هل أنت متأكد من حذف العطل:\n\n"
-                f"{single_fault['fault_number']}؟\n\n"
-                "إذا كان قد تم صرف قطعة غيار له من المخزون، "
-                "سيتم إرجاع الكمية للمخزن تلقائيًا."
-            )
+            return
 
         answer = QMessageBox.question(
             self,
-            "تأكيد الحذف",
-            msg,
+            "تأكيد حذف العطل",
+            f"هل أنت متأكد من حذف العطل:\n\n"
+            f"{fault['fault_number']}؟\n\n"
+            "إذا كان قد تم صرف قطعة غيار له من المخزون، "
+            "سيتم إرجاع الكمية للمخزن تلقائيًا.",
             QMessageBox.Yes |
             QMessageBox.No,
             QMessageBox.No
@@ -4693,166 +4545,159 @@ class FaultsPage(QWidget):
 
             return
 
-        deleted_count = 0
-        errors = []
+        try:
 
-        for fault_id in fault_ids:
-
-            try:
-
-                cursor.execute(
-                    "SELECT * FROM faults WHERE id = ?",
-                    (fault_id,)
+            cursor.execute(
+                """
+                SELECT TOP 1 id,
+                    spare_part_id,
+                    quantity
+                FROM spare_part_movements
+                WHERE movement_type = 'صرف'
+                  AND notes = ?
+                ORDER BY id DESC
+                """,
+                (
+                    f"صرف تلقائي لعطل "
+                    f"{fault['fault_number']}"
                 )
+            )
 
-                fault = cursor.fetchone()
+            movement = cursor.fetchone()
 
-                if not fault:
-                    continue
+            old_values[
+                "linked_spare_part_movement"
+            ] = (
+                {
+                    "spare_part_id":
+                        movement["spare_part_id"],
+                    "quantity":
+                        movement["quantity"],
+                }
+                if movement
+                else None
+            )
 
-                old_values = fault_audit_data(fault)
-
-                cursor.execute(
-                    """
-                    SELECT TOP 1 id,
-                        spare_part_id,
-                        quantity
-                    FROM spare_part_movements
-                    WHERE movement_type = 'صرف'
-                      AND notes = ?
-                    ORDER BY id DESC
-                    """,
-                    (
-                        f"صرف تلقائي لعطل "
-                        f"{fault['fault_number']}",
-                    )
-                )
-
-                movement = cursor.fetchone()
-
-                old_values[
-                    "linked_spare_part_movement"
-                ] = (
-                    {
-                        "spare_part_id":
-                            movement["spare_part_id"],
-                        "quantity":
-                            movement["quantity"],
-                    }
-                    if movement
-                    else None
-                )
-
-                if movement:
-
-                    cursor.execute(
-                        """
-                        UPDATE spare_parts
-                        SET
-                            quantity = quantity + ?,
-                            updated_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                        """,
-                        (
-                            movement["quantity"],
-                            movement["spare_part_id"]
-                        )
-                    )
-
-                    if cursor.rowcount != 1:
-                        errors.append(
-                            f"العطل {fault['fault_number']}: "
-                            "تعذر إرجاع قطعة الغيار."
-                        )
-                        continue
-
-                    cursor.execute(
-                        """
-                        DELETE FROM spare_part_movements
-                        WHERE id = ?
-                        """,
-                        (movement["id"],)
-                    )
+            if movement:
 
                 cursor.execute(
                     """
-                    DELETE FROM fault_updates
-                    WHERE fault_id = ?
-                    """,
-                    (fault_id,)
-                )
-
-                cursor.execute(
-                    """
-                    DELETE FROM faults
+                    UPDATE spare_parts
+                    SET
+                        quantity = quantity + ?,
+                        updated_at = CURRENT_TIMESTAMP
                     WHERE id = ?
                     """,
-                    (fault_id,)
+                    (
+                        movement["quantity"],
+                        movement["spare_part_id"]
+                    )
                 )
 
                 if cursor.rowcount != 1:
-                    errors.append(
-                        f"العطل {fault['fault_number']}: "
-                        "تعذر الحذف."
+
+                    connection.rollback()
+                    connection.close()
+
+                    QMessageBox.warning(
+                        self,
+                        "تنبيه",
+                        "تعذر إرجاع قطعة الغيار للمخزن، "
+                        "لذلك لم يتم حذف العطل."
                     )
-                    continue
 
-                write_audit_log(
-                    user=self.current_user,
-                    action="حذف",
-                    module_name="الأعطال",
-                    record_id=fault_id,
-                    description=(
-                        f"تم حذف العطل رقم "
-                        f"{fault['fault_number']}"
-                    ),
-                    old_values=old_values,
-                    new_values={
-                        "deleted": True,
-                        "stock_returned":
-                            bool(
-                                old_values.get(
-                                    "linked_spare_part_movement"
-                                )
-                            ),
-                    },
+                    return
+
+                cursor.execute(
+                    """
+                    DELETE FROM spare_part_movements
+                    WHERE id = ?
+                    """,
+                    (
+                        movement["id"],
+                    )
                 )
 
-                deleted_count += 1
-
-            except Exception as exc:
-
-                errors.append(
-                    f"خطأ في العطل {fault_id}: {exc}"
+            cursor.execute(
+                """
+                DELETE FROM fault_updates
+                WHERE fault_id = ?
+                """,
+                (
+                    fault_id,
                 )
-
-        try:
-            connection.commit()
-        except Exception as exc:
-            connection.rollback()
-            QMessageBox.critical(
-                self,
-                "خطأ",
-                f"حدث خطأ أثناء حفظ التغييرات:\n{exc}"
             )
-            return
-        finally:
+
+            cursor.execute(
+                """
+                DELETE FROM faults
+                WHERE id = ?
+                """,
+                (
+                    fault_id,
+                )
+            )
+
+            if cursor.rowcount != 1:
+
+                connection.rollback()
+                connection.close()
+
+                QMessageBox.warning(
+                    self,
+                    "تنبيه",
+                    "تعذر حذف العطل."
+                )
+
+                return
+
+            connection.commit()
             connection.close()
 
-        self.load_building_filter()
-        self.load_faults()
-
-        if errors:
-            QMessageBox.warning(
-                self,
-                "اكتمل مع أخطاء",
-                f"تم حذف {deleted_count} عطل بنجاح.\n\n"
-                "الأخطاء:\n" + "\n".join(errors)
+            write_audit_log(
+                user=self.current_user,
+                action="حذف",
+                module_name="الأعطال",
+                record_id=fault_id,
+                description=(
+                    f"تم حذف العطل رقم "
+                    f"{fault['fault_number']}"
+                ),
+                old_values=old_values,
+                new_values={
+                    "deleted": True,
+                    "stock_returned":
+                        bool(
+                            old_values.get(
+                                "linked_spare_part_movement"
+                            )
+                        ),
+                },
             )
-        else:
+
+            # تحديث فلتر المباني.
+            #
+            # المبنى لن يختفي بعد حذف آخر عطل،
+            # لأنه يتم تحميله من جدول buildings مباشرة.
+            self.load_building_filter()
+            self.load_technician_filter()
+
+            self.load_faults()
+
             QMessageBox.information(
                 self,
                 "تم",
-                f"تم حذف {deleted_count} عطل وإرجاع "
-                "قطع الغيار للمخزن إن وُجدت."
+                "تم حذف العطل وإرجاع قطعة الغيار "
+                "للمخزن إن وُجدت."
+            )
+
+        except Exception as exc:
+
+            connection.rollback()
+            connection.close()
+
+            QMessageBox.critical(
+                self,
+                "خطأ",
+                f"حدث خطأ أثناء حذف العطل:\n{exc}"
             )
