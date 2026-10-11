@@ -724,13 +724,22 @@ def main():
         login_window.show()
 
     def open_main(user):
-        login_window.close()
+        try:
+            # نُبقي نافذة الدخول والـ loading ظاهرة أثناء تجهيز النظام.
+            window = MainWindow(user)
+            main_window["window"] = window
+            window.logout_requested.connect(handle_logout)
 
-        window = MainWindow(user)
-        main_window["window"] = window
+            # نُظهر النظام أولاً، ثم نخفي نافذة الدخول بدون وميض أو فراغ.
+            window.show()
+            login_page._set_loading(False)
+            login_window.hide()
 
-        window.logout_requested.connect(handle_logout)
-        window.show()
+        except Exception as error:
+            login_page._set_loading(False)
+            login_page.show_error(
+                f"تعذر فتح النظام بعد تسجيل الدخول:\n{error}"
+            )
 
     login_page.login_successful.connect(open_main)
 

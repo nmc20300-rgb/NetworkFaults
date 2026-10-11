@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QObject, Qt, QThread, Signal, QTimer, Slot
 from PySide6.QtGui import QColor, QPixmap
 from PySide6.QtWidgets import (
     QWidget,
@@ -16,6 +16,38 @@ from PySide6.QtWidgets import (
 )
 
 from auth import authenticate, get_user_permissions
+
+
+class LoginWorker(QObject):
+    succeeded = Signal(object)
+    failed = Signal(str)
+    finished = Signal()
+
+    def __init__(self, username, password):
+        super().__init__()
+        self.username = username
+        self.password = password
+
+    @Slot()
+    def run(self):
+        try:
+            user = authenticate(self.username, self.password)
+
+            if user is None:
+                self.failed.emit("اسم المستخدم أو كلمة المرور غير صحيحة.")
+                return
+
+            permissions = get_user_permissions(
+                user["id"],
+                user["role_id"],
+            )
+            user["permissions"] = permissions
+            self.succeeded.emit(user)
+
+        except Exception as error:
+            self.failed.emit(f"حدث خطأ أثناء تسجيل الدخول:\n{error}")
+        finally:
+            self.finished.emit()
 
 
 class LoginPage(QWidget):
@@ -51,6 +83,12 @@ class LoginPage(QWidget):
         self.original_button_size = 14
 
         self.build_ui()
+
+        self._login_thread = None
+        self._login_worker = None
+        self._loading_timer = None
+        self._loading_step = 0
+        self._build_loading_overlay()
 
     # =========================================================
     # UI
@@ -895,6 +933,16 @@ class LoginPage(QWidget):
 
         self.update_responsive_layout()
 
+        if hasattr(self, "loading_overlay"):
+            overlay_width = min(430, max(300, self.width() - 48))
+            overlay_height = 150
+            self.loading_overlay.setGeometry(
+                (self.width() - overlay_width) // 2,
+                (self.height() - overlay_height) // 2,
+                overlay_width,
+                overlay_height,
+            )
+
     def update_responsive_layout(self):
 
         width = self.width()
@@ -1211,6 +1259,90 @@ class LoginPage(QWidget):
             """
         )
 
+    def _build_loading_overlay(self):
+        self.loading_overlay = QFrame(self)
+        self.loading_overlay.setObjectName("loadingOverlay")
+        self.loading_overlay.hide()
+
+        layout = QVBoxLayout(self.loading_overlay)
+        layout.setContentsMargins(36, 30, 36, 30)
+        layout.setSpacing(10)
+        layout.setAlignment(Qt.AlignCenter)
+
+        self.loading_title = QLabel("جاري التحقق من بيانات الدخول")
+        self.loading_title.setObjectName("loadingTitle")
+        self.loading_title.setAlignment(Qt.AlignCenter)
+
+        self.loading_message = QLabel("لحظات ونجهز النظام لك")
+        self.loading_message.setObjectName("loadingMessage")
+        self.loading_message.setAlignment(Qt.AlignCenter)
+
+        self.loading_dots = QLabel("•")
+        self.loading_dots.setObjectName("loadingDots")
+        self.loading_dots.setAlignment(Qt.AlignCenter)
+
+        layout.addWidget(self.loading_title)
+        layout.addWidget(self.loading_message)
+        layout.addWidget(self.loading_dots)
+
+        self.loading_overlay.setStyleSheet("""
+            QFrame#loadingOverlay {
+                background: rgba(6, 40, 59, 0.94);
+                border: 1px solid rgba(169, 219, 226, 0.35);
+                border-radius: 20px;
+            }
+            QLabel#loadingTitle {
+                color: #ffffff;
+                font-size: 18px;
+                font-weight: 900;
+            }
+            QLabel#loadingMessage {
+                color: #c7e9ed;
+                font-size: 11px;
+                font-weight: 600;
+            }
+            QLabel#loadingDots {
+                color: #69cbd4;
+                font-size: 24px;
+                font-weight: 900;
+                padding-top: 2px;
+            }
+        """)
+
+        self._loading_timer = QTimer(self)
+        self._loading_timer.timeout.connect(self._animate_loading)
+
+    def _animate_loading(self):
+        self._loading_step = (self._loading_step + 1) % 4
+        self.loading_dots.setText("•" * (self._loading_step + 1))
+
+    def _set_loading(self, enabled):
+        widgets = (
+            self.username_input,
+            self.password_input,
+            self.password_toggle,
+            self.login_button,
+        )
+
+        for widget in widgets:
+            widget.setEnabled(not enabled)
+
+        if enabled:
+            self._loading_step = 0
+            self.loading_dots.setText("•")
+            self.loading_overlay.setGeometry(
+                (self.width() - min(430, max(300, self.width() - 48))) // 2,
+                (self.height() - 150) // 2,
+                min(430, max(300, self.width() - 48)),
+                150,
+            )
+            self.loading_overlay.raise_()
+            self.loading_overlay.show()
+            self._loading_timer.start(280)
+        else:
+            self._loading_timer.stop()
+            self.loading_overlay.hide()
+
     # =========================================================
     # Password
     # =========================================================
@@ -1242,105 +1374,56 @@ class LoginPage(QWidget):
     # =========================================================
 
     def login(self):
+        if self._login_thread is not None:
+            return
 
-        username = (
-            self.username_input
-            .text()
-            .strip()
-        )
-
-        password = (
-            self.password_input
-            .text()
-        )
+        username = self.username_input.text().strip()
+        password = self.password_input.text()
 
         self.error_label.hide()
 
-        # =====================================================
-        # Username
-        # =====================================================
-
         if not username:
-
-            self.show_error(
-                "من فضلك أدخل اسم المستخدم."
-            )
-
+            self.show_error("من فضلك أدخل اسم المستخدم.")
             self.username_input.setFocus()
-
             return
-
-        # =====================================================
-        # Password
-        # =====================================================
 
         if not password:
-
-            self.show_error(
-                "من فضلك أدخل كلمة المرور."
-            )
-
+            self.show_error("من فضلك أدخل كلمة المرور.")
             self.password_input.setFocus()
-
             return
 
-        self.login_button.setEnabled(
-            False
-        )
+        self._set_loading(True)
 
-        try:
+        self._login_thread = QThread(self)
+        self._login_worker = LoginWorker(username, password)
+        self._login_worker.moveToThread(self._login_thread)
 
-            # =================================================
-            # Authentication
-            # =================================================
+        self._login_thread.started.connect(self._login_worker.run)
+        self._login_worker.succeeded.connect(self._on_login_success)
+        self._login_worker.failed.connect(self._on_login_failed)
+        self._login_worker.finished.connect(self._login_thread.quit)
+        self._login_worker.finished.connect(self._login_worker.deleteLater)
+        self._login_thread.finished.connect(self._on_login_thread_finished)
+        self._login_thread.finished.connect(self._login_thread.deleteLater)
 
-            user = authenticate(
-                username,
-                password,
-            )
+        self._login_thread.start()
 
-            if user is None:
+    @Slot(object)
+    def _on_login_success(self, user):
+        # يظل الـ overlay ظاهرًا حتى تجهز MainWindow بالكامل.
+        self.login_successful.emit(user)
 
-                self.show_error(
-                    "اسم المستخدم أو كلمة المرور غير صحيحة."
-                )
+    @Slot(str)
+    def _on_login_failed(self, message):
+        self._set_loading(False)
+        self.show_error(message)
+        self.password_input.clear()
+        self.password_input.setFocus()
 
-                self.password_input.clear()
-
-                self.password_input.setFocus()
-
-                return
-
-            # =================================================
-            # Permissions
-            # =================================================
-
-            permissions = get_user_permissions(
-                user["id"],
-                user["role_id"],
-            )
-
-            user["permissions"] = permissions
-
-            # =================================================
-            # Login Success
-            # =================================================
-
-            self.login_successful.emit(
-                user
-            )
-
-        except Exception as error:
-
-            self.show_error(
-                f"حدث خطأ أثناء تسجيل الدخول:\n{error}"
-            )
-
-        finally:
-
-            self.login_button.setEnabled(
-                True
-            )
+    @Slot()
+    def _on_login_thread_finished(self):
+        self._login_thread = None
+        self._login_worker = None
 
     # =========================================================
     # Error
