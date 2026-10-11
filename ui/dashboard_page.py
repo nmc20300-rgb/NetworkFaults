@@ -791,7 +791,7 @@ class DashboardPage(QWidget):
         # ---------- Footer (الأسماء + آخر تحديث بخط صغير هادي) ----------
         footer = QHBoxLayout()
         credits = QLabel(
-            "قائد شبكة الربط عميد أحمد صلاح   ·   المطورون  Ahmed Abozead · Hamdy Haggag"
+            "قائد شبكة الربط عميد أحمد صلاح   ·   المطورون  Ahmed Abozead -- Hamdy Haggag"
         )
         credits.setObjectName("dashboardFooter")
         footer.addWidget(credits)

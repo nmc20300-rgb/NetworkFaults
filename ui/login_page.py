@@ -1273,7 +1273,7 @@ class LoginPage(QWidget):
         self.loading_title.setObjectName("loadingTitle")
         self.loading_title.setAlignment(Qt.AlignCenter)
 
-        self.loading_message = QLabel("لحظات ونجهز النظام لك")
+        self.loading_message = QLabel("لحظات والنظام يبقى جاهز")
         self.loading_message.setObjectName("loadingMessage")
         self.loading_message.setAlignment(Qt.AlignCenter)
 

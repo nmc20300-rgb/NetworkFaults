@@ -725,13 +725,23 @@ def main():
 
     def open_main(user):
         try:
+            # نحفظ حالة نافذة الدخول قبل الانتقال للنظام.
+            was_fullscreen = login_window.isFullScreen()
+            was_maximized = login_window.isMaximized()
+
             # نُبقي نافذة الدخول والـ loading ظاهرة أثناء تجهيز النظام.
             window = MainWindow(user)
             main_window["window"] = window
             window.logout_requested.connect(handle_logout)
 
-            # نُظهر النظام أولاً، ثم نخفي نافذة الدخول بدون وميض أو فراغ.
-            window.show()
+            # نُظهر النظام أولاً ثم نطبق نفس حالة النافذة بدون وميض.
+            if was_fullscreen:
+                window.showFullScreen()
+            elif was_maximized:
+                window.showMaximized()
+            else:
+                window.show()
+
             login_page._set_loading(False)
             login_window.hide()
 
