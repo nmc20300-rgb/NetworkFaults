@@ -1,5 +1,6 @@
 from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QTextDocument
+from PySide6.QtPrintSupport import QPrinter, QPrintPreviewDialog
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView,
@@ -266,6 +267,13 @@ QCheckBox {
 
 STATUS_AVAILABLE = "متوفرة"
 STATUS_MISSING = "ناقصة"
+SERIAL_NUMBER_CATEGORIES = {"printer", "ssd", "monitor", "service taq"}
+
+
+def category_requires_serial(category_name):
+    """Return whether this category should display the S/N field."""
+    normalized = " ".join(str(category_name or "").strip().casefold().split())
+    return normalized in SERIAL_NUMBER_CATEGORIES
 
 
 def ensure_spare_parts_tables():
@@ -287,6 +295,8 @@ def ensure_spare_parts_tables():
             END;
             IF COL_LENGTH('dbo.spare_parts', 'category_id') IS NULL
                 ALTER TABLE dbo.spare_parts ADD category_id INT NULL;
+            IF COL_LENGTH('dbo.spare_parts', 'serial_number') IS NULL
+                ALTER TABLE dbo.spare_parts ADD serial_number NVARCHAR(150) NULL;
         """)
         # Import all existing free-text categories without overwriting existing records.
         cursor.execute("""
@@ -646,8 +656,8 @@ def spare_part_audit_data(part):
     if not part:
         return {}
     keys = (
-        "id", "part_number", "part_name", "category", "category_id", "quantity",
-        "min_quantity", "required_quantity", "unit", "supplier",
+        "id", "part_number", "part_name", "category", "category_id", "serial_number",
+        "quantity", "min_quantity", "required_quantity", "unit", "supplier",
         "unit_price", "storage_location", "notes", "availability_status",
         "is_archived", "created_at", "updated_at",
     )
@@ -838,6 +848,10 @@ class SparePartDialog(QDialog):
             if is_active or is_current_category:
                 self.category.addItem(category_name, category_id)
 
+        self.serial_number = QLineEdit()
+        self.serial_number.setPlaceholderText("أدخل S/N / الرقم التسلسلي")
+        self.serial_number.setMaxLength(150)
+
         self.quantity = QSpinBox()
         self.quantity.setRange(0, 1000000)
         self.min_quantity = QSpinBox()
@@ -858,6 +872,7 @@ class SparePartDialog(QDialog):
         self.part_number_label = QLabel("رقم القطعة:")
         self.part_name_label = QLabel("اسم القطعة *:")
         self.category_label = QLabel("التصنيف:")
+        self.serial_number_label = QLabel("S/N (الرقم التسلسلي):")
         self.quantity_label = QLabel("الكمية المتوفرة حاليًا:")
         self.min_quantity_label = QLabel("حد التنبيه (الحد الأدنى):")
         self.required_quantity_label = QLabel("الكمية المطلوب توفيرها *:")
@@ -870,6 +885,7 @@ class SparePartDialog(QDialog):
         form.addRow(self.part_number_label, self.part_number)
         form.addRow(self.part_name_label, self.part_name)
         form.addRow(self.category_label, self.category)
+        form.addRow(self.serial_number_label, self.serial_number)
         form.addRow(self.quantity_label, self.quantity)
         form.addRow(self.min_quantity_label, self.min_quantity)
         form.addRow(self.required_quantity_label, self.required_quantity)
@@ -888,9 +904,19 @@ class SparePartDialog(QDialog):
         root.addWidget(buttons)
 
         # الحالة الابتدائية: متوفرة
+        self.category.currentIndexChanged.connect(self.update_serial_visibility)
+
         self.set_availability(True)
         if part:
             self.load_part()
+        else:
+            self.update_serial_visibility()
+
+    def update_serial_visibility(self, *_args):
+        """Show S/N only for printer, SSD, MONITOR and SERVICE TAQ."""
+        visible = category_requires_serial(self.category.currentText())
+        self.serial_number_label.setVisible(visible)
+        self.serial_number.setVisible(visible)
 
     def set_availability(self, is_available: bool):
         """يبدّل شكل الفورم حسب اختيار (متوفرة / ناقصة)."""
@@ -929,6 +955,7 @@ class SparePartDialog(QDialog):
         if category_index < 0 and p["category"]:
             category_index = self.category.findText(str(p["category"]))
         self.category.setCurrentIndex(category_index if category_index >= 0 else 0)
+        self.serial_number.setText(p["serial_number"] or "")
 
         self.quantity.setValue(int(p["quantity"] or 0))
         self.min_quantity.setValue(int(p["min_quantity"] or 0))
@@ -980,6 +1007,7 @@ class SparePartDialog(QDialog):
             "part_name": self.part_name.text().strip(),
             "category_id": self.category.currentData(),
             "category": self.category.currentText() if self.category.currentData() is not None else "",
+            "serial_number": self.serial_number.text().strip() if category_requires_serial(self.category.currentText()) else "",
             "quantity": self.quantity.value(),
             "min_quantity": self.min_quantity.value(),
             "required_quantity": self.required_quantity.value(),
@@ -1221,6 +1249,8 @@ class SparePartsPage(QWidget):
         self.history_button.setObjectName("secondaryButton")
         self.delete_button = QPushButton("حذف")
         self.delete_button.setObjectName("dangerButton")
+        self.print_button = QPushButton("طباعة التفاصيل")
+        self.print_button.setObjectName("secondaryButton")
         self.categories_button = QPushButton("إدارة التصنيفات")
         self.categories_button.setObjectName("secondaryButton")
 
@@ -1230,6 +1260,7 @@ class SparePartsPage(QWidget):
         header.addWidget(self.movement_button)
         header.addWidget(self.history_button)
         header.addWidget(self.delete_button)
+        header.addWidget(self.print_button)
         main.addLayout(header)
 
         cards = QHBoxLayout()
@@ -1265,12 +1296,13 @@ class SparePartsPage(QWidget):
         main.addLayout(search_row)
 
         self.table = QTableWidget()
-        self.table.setColumnCount(10)
+        self.table.setColumnCount(11)
         self.table.setHorizontalHeaderLabels([
             "ID",
             "رقم القطعة",
             "اسم القطعة",
             "التصنيف",
+            "S/N",
             "المتاح",
             "الحد الأدنى",
             "المطلوب",
@@ -1326,6 +1358,7 @@ class SparePartsPage(QWidget):
         self.movement_button.clicked.connect(self.add_movement)
         self.history_button.clicked.connect(self.show_movement_history)
         self.delete_button.clicked.connect(self.delete_part)
+        self.print_button.clicked.connect(self.print_part_details)
         self.table.doubleClicked.connect(self.edit_part)
         self.table.itemSelectionChanged.connect(self.update_action_buttons)
         self.update_action_buttons()
@@ -1371,7 +1404,12 @@ class SparePartsPage(QWidget):
     def update_action_buttons(self):
         """أزرار التعديل والحركة والحذف تتفعل فقط عند اختيار قطعة."""
         has_selection = bool(self.table.selectedItems())
-        for button in (self.edit_button, self.movement_button, self.delete_button):
+        for button in (
+            self.edit_button,
+            self.movement_button,
+            self.delete_button,
+            self.print_button,
+        ):
             button.setEnabled(has_selection)
 
     def toggle_status_filter(self, filter_text):
@@ -1423,11 +1461,12 @@ class SparePartsPage(QWidget):
                 AND (
                     part_name LIKE ?
                     OR part_number LIKE ?
+                    OR serial_number LIKE ?
                     OR supplier LIKE ?
                 )
             """
             keyword = f"%{search}%"
-            params.extend([keyword, keyword, keyword])
+            params.extend([keyword, keyword, keyword, keyword])
 
         query += " ORDER BY part_name"
         cursor.execute(query, params)
@@ -1496,6 +1535,7 @@ class SparePartsPage(QWidget):
                 part["part_number"] or "",
                 part["part_name"] or "",
                 part["category"] or "",
+                part["serial_number"] or "",
                 quantity,
                 minimum,
                 required,
@@ -1567,17 +1607,18 @@ class SparePartsPage(QWidget):
         cursor = connection.cursor()
         cursor.execute("""
             INSERT INTO spare_parts (
-                part_number, part_name, category, category_id, quantity,
+                part_number, part_name, category, category_id, serial_number, quantity,
                 min_quantity, required_quantity, unit, supplier,
                 unit_price, storage_location, notes, availability_status
             )
             OUTPUT INSERTED.id
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             data["part_number"],
             data["part_name"],
             data["category"],
             data["category_id"],
+            data["serial_number"],
             data["quantity"],
             data["min_quantity"],
             data["required_quantity"],
@@ -1629,6 +1670,7 @@ class SparePartsPage(QWidget):
                 part_name = ?,
                 category = ?,
                 category_id = ?,
+                serial_number = ?,
                 quantity = ?,
                 min_quantity = ?,
                 required_quantity = ?,
@@ -1645,6 +1687,7 @@ class SparePartsPage(QWidget):
             data["part_name"],
             data["category"],
             data["category_id"],
+            data["serial_number"],
             data["quantity"],
             data["min_quantity"],
             data["required_quantity"],
@@ -1674,6 +1717,103 @@ class SparePartsPage(QWidget):
         )
 
         self.load_parts()
+
+    def print_part_details(self):
+        """Open a print preview containing the selected part's full details."""
+        part = self.selected_part()
+        if not part:
+            return
+
+        from html import escape
+
+        def safe(value):
+            return escape("" if value is None else str(value))
+
+        serial_number = safe(part["serial_number"]) or "غير مسجل"
+        report_html = f"""
+        <!DOCTYPE html>
+        <html dir="rtl">
+        <head>
+            <meta charset="utf-8">
+            <style>
+                body {{
+                    font-family: Arial, sans-serif;
+                    direction: rtl;
+                    color: #0f2338;
+                    margin: 35px;
+                }}
+                h1 {{
+                    text-align: center;
+                    color: #0f2338;
+                    margin-bottom: 5px;
+                }}
+                .subtitle {{
+                    text-align: center;
+                    color: #64748b;
+                    margin-bottom: 25px;
+                }}
+                table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    margin-top: 15px;
+                }}
+                th, td {{
+                    border: 1px solid #cbd5e1;
+                    padding: 10px;
+                    text-align: right;
+                }}
+                th {{
+                    background-color: #e2e8f0;
+                    width: 30%;
+                }}
+                .serial {{
+                    font-size: 18px;
+                    font-weight: bold;
+                    color: #0891b2;
+                    direction: ltr;
+                    text-align: left;
+                }}
+                .footer {{
+                    margin-top: 35px;
+                    color: #64748b;
+                    font-size: 11px;
+                    text-align: center;
+                }}
+            </style>
+        </head>
+        <body>
+            <h1>تقرير تفاصيل قطعة غيار</h1>
+            <div class="subtitle">تقرير تفصيلي ببيانات قطعة الغيار</div>
+            <table>
+                <tr><th>رقم السجل</th><td>{safe(part["id"])}</td></tr>
+                <tr><th>رقم القطعة</th><td>{safe(part["part_number"])}</td></tr>
+                <tr><th>اسم القطعة</th><td>{safe(part["part_name"])}</td></tr>
+                <tr><th>التصنيف</th><td>{safe(part["category"])}</td></tr>
+                <tr><th>S/N - الرقم التسلسلي</th><td class="serial">{serial_number}</td></tr>
+                <tr><th>الكمية المتاحة</th><td>{safe(part["quantity"])}</td></tr>
+                <tr><th>الحد الأدنى</th><td>{safe(part["min_quantity"])}</td></tr>
+                <tr><th>الكمية المطلوبة</th><td>{safe(part["required_quantity"])}</td></tr>
+                <tr><th>الوحدة</th><td>{safe(part["unit"])}</td></tr>
+                <tr><th>المورد</th><td>{safe(part["supplier"])}</td></tr>
+                <tr><th>سعر الوحدة</th><td>{safe(part["unit_price"])}</td></tr>
+                <tr><th>مكان التخزين</th><td>{safe(part["storage_location"])}</td></tr>
+                <tr><th>الحالة</th><td>{safe(part["availability_status"])}</td></tr>
+                <tr><th>ملاحظات</th><td>{safe(part["notes"])}</td></tr>
+            </table>
+            <div class="footer">تم إنشاء التقرير بواسطة نظام إدارة قطع الغيار</div>
+        </body>
+        </html>
+        """
+
+        document = QTextDocument()
+        document.setHtml(report_html)
+
+        printer = QPrinter(QPrinter.HighResolution)
+        preview = QPrintPreviewDialog(printer, self)
+        preview.setWindowTitle("معاينة تقرير قطعة الغيار")
+        preview.resize(1000, 700)
+        preview.paintRequested.connect(document.print_)
+        preview.exec()
 
     def add_movement(self):
         part = self.selected_part()

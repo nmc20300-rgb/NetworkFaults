@@ -166,10 +166,12 @@ class ClockCard(QFrame):
         self.setObjectName("clockCard")
         self.setLayoutDirection(Qt.LeftToRight)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        # نفس عرض لوحة المواقيت وهي مفتوحة، فالحواف اليمين والشمال تتطابق
+        self.setFixedWidth(PrayerTimesPanel.EXPANDED_WIDTH)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(12, 8, 18, 8)
-        layout.setSpacing(12)
+        layout.setContentsMargins(12, 8, 14, 8)
+        layout.setSpacing(10)
 
         self.analog = AnalogClock(54)
         layout.addWidget(self.analog, 0, Qt.AlignVCenter)
@@ -195,7 +197,6 @@ class ClockCard(QFrame):
         self.date_label.setObjectName("clockDate")
         self.date_label.setLayoutDirection(Qt.RightToLeft)
         self.date_label.setAlignment(ALIGN_RIGHT)
-        self.date_label.setMinimumWidth(170)
         text_col.addWidget(self.date_label)
         layout.addLayout(text_col)
 
