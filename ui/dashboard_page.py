@@ -243,6 +243,7 @@ class StatCard(QFrame):
 
         self.value_label = QLabel(str(value))
         self.value_label.setObjectName("cardValue")
+        self.value_label.setAlignment(ALIGN_RIGHT)
         layout.addWidget(self.value_label)
 
     def set_value(self, value, tone=""):
@@ -859,7 +860,7 @@ class DashboardPage(QWidget):
                 font-weight: 700;
             }
 
-            #dashboardFooter { color: #a3b1bf; font-size: 11px; }
+            #dashboardFooter { color: #7b8a99; font-size: 11px; }
 
             /* مواقيت الصلاة */
             #prayerPanel {
