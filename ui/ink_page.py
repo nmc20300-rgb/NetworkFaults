@@ -8,15 +8,18 @@ import datetime
 from pathlib import Path
 
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QTableWidget, QTableWidgetItem,
     QHeaderView, QDialog, QFormLayout, QComboBox,
     QSpinBox, QDateEdit, QPlainTextEdit, QLineEdit,
     QMessageBox, QFrame, QDialogButtonBox,
     QAbstractItemView, QScrollArea, QFileDialog,
+    QStyle, QStyleOptionComboBox,
 )
-from PySide6.QtCore import Qt, QDate, QByteArray, QSize
-from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter
+from PySide6.QtCore import (
+    Qt, QDate, QByteArray, QSize, QTimer, QObject, QEvent, QPoint, QPointF,
+)
+from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter, QMouseEvent
 from PySide6.QtSvg import QSvgRenderer
 
 from database import get_connection, write_audit_log
@@ -83,6 +86,106 @@ def make_action_icon(kind):
     renderer.render(painter)
     painter.end()
     return QIcon(pixmap)
+
+
+# ─────────────────────────────────────────────────────────────
+# Date edit helper: التقويم يفتح بالضغط على أي مكان في الحقل
+# ─────────────────────────────────────────────────────────────
+
+class _OpenCalendarOnClick(QObject):
+    """يفتح التقويم بمجرد الضغط على أي مكان في حقل التاريخ (مش بس السهم)."""
+
+    def __init__(self, edit):
+        super().__init__(edit)
+        self._edit = edit
+
+        line_edit = edit.findChild(QLineEdit)
+        if line_edit is not None:
+            line_edit.installEventFilter(self)
+
+    def _arrow_point(self):
+        edit = self._edit
+
+        option = QStyleOptionComboBox()
+        option.initFrom(edit)
+        option.subControls = QStyle.SC_All
+
+        rect = edit.style().subControlRect(
+            QStyle.CC_ComboBox,
+            option,
+            QStyle.SC_ComboBoxArrow,
+            edit,
+        )
+
+        if rect.isValid() and not rect.isEmpty():
+            return rect.center()
+
+        x = 10 if edit.layoutDirection() == Qt.RightToLeft else edit.width() - 10
+        return QPoint(x, edit.height() // 2)
+
+    def eventFilter(self, obj, event):
+        if (
+            event.type() == QEvent.MouseButtonPress
+            and event.button() == Qt.LeftButton
+            and self._edit.isEnabled()
+            and not self._edit.isReadOnly()
+        ):
+            pos = self._arrow_point()
+
+            fake_press = QMouseEvent(
+                QEvent.MouseButtonPress,
+                QPointF(pos),
+                QPointF(self._edit.mapToGlobal(pos)),
+                Qt.LeftButton,
+                Qt.LeftButton,
+                Qt.NoModifier,
+            )
+
+            QApplication.sendEvent(self._edit, fake_press)
+            return True
+
+        return False
+
+
+def open_calendar_on_click(edit):
+    return _OpenCalendarOnClick(edit)
+
+
+def is_unset(edit):
+    """الحقل في وضع (كل التواريخ)؟"""
+    return edit.dateTime() <= edit.minimumDateTime()
+
+
+def clear_date(edit):
+    edit.setDate(edit.minimumDate())
+
+
+class _CalendarTodayFilter(QObject):
+    """يخلي التقويم يفتح على الشهر الحالي لما الحقل يكون على (كل التواريخ)."""
+
+    def __init__(self, edit):
+        super().__init__(edit)
+        self._edit = edit
+        edit.calendarWidget().installEventFilter(self)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Show and is_unset(self._edit):
+            today = QDate.currentDate()
+            obj.setCurrentPage(today.year(), today.month())
+        return False
+
+
+def make_date_filter():
+    """حقل تاريخ للفلاتر: الافتراضي (كل التواريخ) والتقويم يفتح بالضغط على الحقل."""
+    edit = QDateEdit()
+    edit.setCalendarPopup(True)
+    edit.setDisplayFormat("yyyy-MM-dd")
+    edit.setSpecialValueText("كل التواريخ")
+    edit.setMinimumHeight(32)
+    clear_date(edit)
+    _CalendarTodayFilter(edit)
+    open_calendar_on_click(edit)
+    return edit
 
 
 # ─────────────────────────────────────────────────────────────
@@ -206,6 +309,7 @@ class InkTransactionDialog(QDialog):
         self.date_edit.setMinimumHeight(36)
         self.date_edit.setDisplayFormat("yyyy-MM-dd")
         self.date_edit.setEnabled(self.can_edit_date)
+        open_calendar_on_click(self.date_edit)
         form.addRow("التاريخ *:", self.date_edit)
 
         # ── الفرع / المبنى / القسم ───────────────────────────
@@ -251,6 +355,7 @@ class InkTransactionDialog(QDialog):
         self.delivery_date.setMinimumHeight(36)
         self.delivery_date.setDisplayFormat("yyyy-MM-dd")
         self.delivery_date.setSpecialValueText("—")
+        open_calendar_on_click(self.delivery_date)
         form.addRow("تاريخ التسليم:", self.delivery_date)
 
         # ── الملاحظات / الحالة ───────────────────────────────
@@ -526,6 +631,7 @@ class InkViewDialog(QDialog):
 class InkPage(QWidget):
 
     PAGE_SIZE = 50
+    SEARCH_DELAY_MS = 300
 
     def __init__(self, current_user=None, parent=None):
         super().__init__(parent)
@@ -587,18 +693,9 @@ class InkPage(QWidget):
         row1 = QHBoxLayout()
         row1.setSpacing(10)
 
-        self.f_date_from = QDateEdit()
-        self.f_date_from.setCalendarPopup(True)
-        self.f_date_from.setDate(QDate.currentDate().addDays(-30))
-        self.f_date_from.setDisplayFormat("yyyy-MM-dd")
-        self.f_date_from.setMinimumHeight(32)
-        self.f_date_from.setSpecialValueText("—")
-
-        self.f_date_to = QDateEdit()
-        self.f_date_to.setCalendarPopup(True)
-        self.f_date_to.setDate(QDate.currentDate())
-        self.f_date_to.setDisplayFormat("yyyy-MM-dd")
-        self.f_date_to.setMinimumHeight(32)
+        # الافتراضي: كل التواريخ (كل الحركات تظهر عند فتح الصفحة)
+        self.f_date_from = make_date_filter()
+        self.f_date_to = make_date_filter()
 
         self.f_status = QComboBox()
         self.f_status.setMinimumHeight(32)
@@ -622,7 +719,8 @@ class InkPage(QWidget):
         self.f_unit.addItem("كل الوحدات", None)
 
         self.f_search = QLineEdit()
-        self.f_search.setPlaceholderText("بحث بالوحدة أو المكتب …")
+        self.f_search.setPlaceholderText("بحث فوري بالوحدة أو المكتب …")
+        self.f_search.setClearButtonEnabled(True)
         self.f_search.setMinimumHeight(32)
 
         btn_search = QPushButton("بحث")
@@ -702,6 +800,30 @@ class InkPage(QWidget):
 
         self._apply_style()
         self._load_filter_units()
+        self._connect_live_filters()
+
+    def _connect_live_filters(self):
+        """
+        البحث الفوري: أي تغيير في الفلاتر يحدّث النتائج تلقائيًا.
+
+        - الكتابة في خانة البحث: تحديث بعد 300 مللي ثانية من آخر حرف.
+        - التاريخ / الملاحظة / الوحدة: تحديث فوري عند الاختيار.
+        - كل التحديثات بتقرأ باقي الفلاتر الحالية، فمفيش فلتر بيتمسح.
+        """
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(self.SEARCH_DELAY_MS)
+        self._search_timer.timeout.connect(self._do_search)
+
+        self.f_search.textChanged.connect(
+            lambda *_: self._search_timer.start()
+        )
+        self.f_search.returnPressed.connect(self._do_search)
+
+        self.f_date_from.dateChanged.connect(lambda *_: self._do_search())
+        self.f_date_to.dateChanged.connect(lambda *_: self._do_search())
+        self.f_status.currentIndexChanged.connect(lambda *_: self._do_search())
+        self.f_unit.currentIndexChanged.connect(lambda *_: self._do_search())
 
     def _apply_style(self):
         self.setStyleSheet("""
@@ -790,11 +912,25 @@ class InkPage(QWidget):
         except Exception:
             self._org_units_all = []
 
-        self.f_unit.clear()
-        self.f_unit.addItem("كل الوحدات", None)
-        for u in self._org_units_all:
-            if u["unit_type"] in ("فرع", "مبنى", "قسم"):
-                self.f_unit.addItem(f"[{u['unit_type']}] {u['name']}", u["id"])
+        # نحتفظ بالوحدة المختارة حاليًا، وما نطلقش بحث أثناء إعادة التحميل
+        current_unit_id = self.f_unit.currentData()
+
+        self.f_unit.blockSignals(True)
+        try:
+            self.f_unit.clear()
+            self.f_unit.addItem("كل الوحدات", None)
+            for u in self._org_units_all:
+                if u["unit_type"] in ("فرع", "مبنى", "قسم"):
+                    self.f_unit.addItem(f"[{u['unit_type']}] {u['name']}", u["id"])
+
+            index = (
+                self.f_unit.findData(current_unit_id)
+                if current_unit_id is not None
+                else -1
+            )
+            self.f_unit.setCurrentIndex(index if index >= 0 else 0)
+        finally:
+            self.f_unit.blockSignals(False)
 
     # ── Load Transactions ────────────────────────────────────
 
@@ -805,17 +941,30 @@ class InkPage(QWidget):
         self._do_search()
 
     def _do_search(self):
+        # لو في بحث مؤجل بسبب الكتابة، نلغيه لأننا بنبحث الآن
+        if hasattr(self, "_search_timer"):
+            self._search_timer.stop()
         self._page = 0
         self._fetch_and_display()
 
     def _reset_filters(self):
-        self.f_date_from.setDate(QDate.currentDate().addDays(-30))
-        self.f_date_to.setDate(QDate.currentDate())
+        widgets = (
+            self.f_date_from, self.f_date_to, self.f_status,
+            self.f_unit, self.f_search,
+        )
+        for widget in widgets:
+            widget.blockSignals(True)
+
+        clear_date(self.f_date_from)
+        clear_date(self.f_date_to)
         self.f_status.setCurrentIndex(0)
         self.f_unit.setCurrentIndex(0)
         self.f_search.clear()
-        self._page = 0
-        self._fetch_and_display()
+
+        for widget in widgets:
+            widget.blockSignals(False)
+
+        self._do_search()
 
     def _prev_page(self):
         if self._page > 0:
@@ -829,22 +978,27 @@ class InkPage(QWidget):
             self._fetch_and_display()
 
     def _build_filtered_query(self):
-        date_from = self.f_date_from.date()
-        date_to = self.f_date_to.date()
+        date_from = None if is_unset(self.f_date_from) else self.f_date_from.date()
+        date_to = None if is_unset(self.f_date_to) else self.f_date_to.date()
+
+        # لو المستخدم عكس التاريخين نبدّلهم بدل ما النتيجة تطلع فاضية
+        if date_from and date_to and date_from > date_to:
+            date_from, date_to = date_to, date_from
+
         status = self.f_status.currentData()
         unit_id = self.f_unit.currentData()
         search = self.f_search.text().strip()
 
         where_clauses = ["1=1"]
         params = []
-        where_clauses.append("it.trans_date >= ?")
-        params.append(
-            f"{date_from.year()}-{date_from.month():02d}-{date_from.day():02d}"
-        )
-        where_clauses.append("it.trans_date <= ?")
-        params.append(
-            f"{date_to.year()}-{date_to.month():02d}-{date_to.day():02d}"
-        )
+
+        if date_from:
+            where_clauses.append("it.trans_date >= ?")
+            params.append(date_from.toString("yyyy-MM-dd"))
+
+        if date_to:
+            where_clauses.append("it.trans_date <= ?")
+            params.append(date_to.toString("yyyy-MM-dd"))
 
         if status:
             where_clauses.append("it.status = ?")
@@ -1025,8 +1179,14 @@ class InkPage(QWidget):
             workbook.close()
 
             export_filters = {
-                "date_from": self.f_date_from.date().toString("yyyy-MM-dd"),
-                "date_to": self.f_date_to.date().toString("yyyy-MM-dd"),
+                "date_from": (
+                    "" if is_unset(self.f_date_from)
+                    else self.f_date_from.date().toString("yyyy-MM-dd")
+                ),
+                "date_to": (
+                    "" if is_unset(self.f_date_to)
+                    else self.f_date_to.date().toString("yyyy-MM-dd")
+                ),
                 "status": self.f_status.currentData() or "",
                 "unit_id": self.f_unit.currentData() or "",
                 "search": self.f_search.text().strip(),

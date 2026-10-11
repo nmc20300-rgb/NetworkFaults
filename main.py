@@ -174,7 +174,7 @@ class MainWindow(QMainWindow):
         ).strip().upper()
 
         if role_code == "SUPER_ADMIN":
-            role_name = "قائد شبكة الربط المحلية"
+            role_name = "عميد أحمد صلاح"
         elif role_code == "ADMIN":
             role_name = "Admin"
         elif role_code == "SUB_ADMIN":
