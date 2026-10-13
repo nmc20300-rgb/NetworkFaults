@@ -13,12 +13,16 @@ from math import ceil
 # الإعدادات (عدّل من هنا)
 # =============================================================
 SCHEDULE_TIMES = (
-    time(0, 0),    # 12:00 منتصف الليل
+    time(0, 0),    # 12:00 منتصف الليل (بدون تأكيد)
     time(8, 0),    # 08:00 صباحًا
     time(12, 0),   # 12:00 ظهرًا
     time(16, 0),   # 04:00 عصرًا
-    time(20, 0),   # 08:00 مساءً
+    time(20, 0),   # 08:00 مساءً (بدون تأكيد)
 )
+
+# المواعيد اللي لازم تتأكد. الباقي (12 ص و 8 م) معلوماتي: بيظهر في العدّاد
+# لكن مش بيتحسب تأخير ولا missed ومش بيظهر في السجل ولا في نسبة الالتزام.
+CONFIRMATION_REQUIRED_TIMES = frozenset({time(8, 0), time(12, 0), time(16, 0)})
 
 INFO_WINDOW_SECONDS = 60 * 60      # قبل الموعد بساعة: تنبيه
 WARNING_WINDOW_SECONDS = 30 * 60   # قبل الموعد بنص ساعة: برتقالي
@@ -28,8 +32,11 @@ MISSED_SWEEP_DAYS = 31             # أقصى رجوع لتسجيل المواع
 HISTORY_DAYS = 30
 
 # الأدوار المسموح لها تأكيد التبديل (placeholder: اربطها بنظام الصلاحيات عندك)
-AC_CONFIRM_ROLES = frozenset({"SUPER_ADMIN", "ADMIN", "SUB_ADMIN"})
+AC_CONFIRM_ROLES = frozenset({"SUB_ADMIN"})
 AC_CONFIRM_PERMISSION = "ac_confirm"
+
+# الأدوار اللي بيظهر لها كارت التكييف في الداشبورد (السوبر أدمن ملوش علاقة بيه)
+AC_VISIBLE_ROLES = frozenset({"SUB_ADMIN"})
 
 # حالات السجل في قاعدة البيانات
 STATUS_PENDING = "pending"      # (محجوزة - مش بتتخزن، المعلّق بيتحسب من الوقت)
@@ -52,7 +59,12 @@ ARABIC_MONTHS = [
 # =============================================================
 # حساب المواعيد
 # =============================================================
-def slots_between(start, end):
+def requires_confirmation(slot):
+    """هل الموعد ده لازم يتأكد؟ (8 ص / 12 ظ / 4 ع فقط)."""
+    return slot.time() in CONFIRMATION_REQUIRED_TIMES
+
+
+def slots_between(start, end, required_only=False):
     """كل المواعيد المجدولة داخل [start, end] مرتبة تصاعديًا."""
     if end < start:
         return []
@@ -61,7 +73,7 @@ def slots_between(start, end):
     while day <= end.date():
         for slot_time in SCHEDULE_TIMES:
             slot = datetime.combine(day, slot_time)
-            if start <= slot <= end:
+            if start <= slot <= end and (not required_only or requires_confirmation(slot)):
                 result.append(slot)
         day += timedelta(days=1)
     return result
@@ -78,6 +90,17 @@ def next_slot(now):
     raise RuntimeError("لا يوجد موعد قادم")  # لا يحدث عمليًا
 
 
+def next_required_slot(now):
+    """أول موعد قادم لازم يتأكد (8 ص / 12 ظ / 4 ع)."""
+    for offset in (0, 1):
+        day = now.date() + timedelta(days=offset)
+        for slot_time in SCHEDULE_TIMES:
+            slot = datetime.combine(day, slot_time)
+            if slot > now and requires_confirmation(slot):
+                return slot
+    raise RuntimeError("لا يوجد موعد قادم")  # لا يحدث عمليًا
+
+
 def previous_slot(now):
     """آخر موعد حان (<= الآن)."""
     for offset in (0, -1):
@@ -90,11 +113,15 @@ def previous_slot(now):
 
 
 def outstanding_slots(now, resolved, tracking_start=None, lookback_hours=OVERDUE_LOOKBACK_HOURS):
-    """المواعيد اللي حانت ولسه متأكدتش (الأقدم أولًا)، داخل فترة التتبع."""
+    """المواعيد (المطلوب تأكيدها) اللي حانت ولسه متأكدتش (الأقدم أولًا)، داخل فترة التتبع."""
     window_start = now - timedelta(hours=lookback_hours)
     if tracking_start is not None:
         window_start = max(window_start, tracking_start)
-    return [slot for slot in slots_between(window_start, now) if slot not in resolved]
+    return [
+        slot
+        for slot in slots_between(window_start, now, required_only=True)
+        if slot not in resolved
+    ]
 
 
 def slots_to_mark_missed(
@@ -109,7 +136,11 @@ def slots_to_mark_missed(
         return []
     cutoff = now - timedelta(hours=lookback_hours)
     start = max(tracking_start, now - timedelta(days=sweep_days))
-    return [slot for slot in slots_between(start, cutoff) if slot < cutoff and slot not in resolved]
+    return [
+        slot
+        for slot in slots_between(start, cutoff, required_only=True)
+        if slot < cutoff and slot not in resolved
+    ]
 
 
 # =============================================================
@@ -219,6 +250,7 @@ def build_alert_state(now, resolved, tracking_start=None, lookback_hours=OVERDUE
     الدالة نقية: نفس المُدخلات = نفس النتيجة، فالحالة صحيحة حتى بعد إعادة تشغيل البرنامج.
     """
     upcoming = next_slot(now)
+    upcoming_required = requires_confirmation(upcoming)
     until_next = (upcoming - now).total_seconds()
     outstanding = tuple(outstanding_slots(now, resolved, tracking_start, lookback_hours))
 
@@ -237,8 +269,9 @@ def build_alert_state(now, resolved, tracking_start=None, lookback_hours=OVERDUE
         if len(outstanding) > 1:
             details.append(f"تبديلات متأخرة أخرى غير مؤكدة: {len(outstanding) - 1}")
         if until_next <= INFO_WINDOW_SECONDS:
+            suffix = "" if upcoming_required else " (بدون تأكيد)"
             details.append(
-                f"التبديل القادم {slot_label(upcoming, now)} — متبقي "
+                f"التبديل القادم {slot_label(upcoming, now)}{suffix} — متبقي "
                 f"{format_duration_ar(ceil(until_next / 60))}"
             )
         return AlertState(
@@ -253,11 +286,19 @@ def build_alert_state(now, resolved, tracking_start=None, lookback_hours=OVERDUE
             next_slot=upcoming,
         )
 
-    level = classify_level(until_next)
-    if level == LEVEL_NORMAL:
-        message = f"التبديل القادم: {slot_label(upcoming, now)}"
+    if upcoming_required:
+        level = classify_level(until_next)
+        detail = ""
+        if level == LEVEL_NORMAL:
+            message = f"التبديل القادم: {slot_label(upcoming, now)}"
+        else:
+            message = f"متبقي {format_duration_ar(ceil(until_next / 60))} على تبديل التكييف"
     else:
-        message = f"متبقي {format_duration_ar(ceil(until_next / 60))} على تبديل التكييف"
+        # موعد معلوماتي: لون هادي دايمًا، ومفيش زر تأكيد
+        level = LEVEL_NORMAL
+        message = f"التبديل القادم: {slot_label(upcoming, now)} (بدون تأكيد)"
+        detail = f"التأكيد المطلوب القادم: {slot_label(next_required_slot(now), now)}"
+
     return AlertState(
         level=level,
         primary_slot=upcoming,
@@ -265,7 +306,7 @@ def build_alert_state(now, resolved, tracking_start=None, lookback_hours=OVERDUE
         message=message,
         countdown_caption="متبقي",
         countdown_value=format_hms(until_next),
-        detail="",
+        detail=detail,
         outstanding=(),
         next_slot=upcoming,
     )
@@ -274,6 +315,12 @@ def build_alert_state(now, resolved, tracking_start=None, lookback_hours=OVERDUE
 # =============================================================
 # الصلاحيات واسم المستخدم (من المستخدم الحالي في الداشبورد، بدون تغيير منطق الصلاحيات)
 # =============================================================
+def can_see_ac_alert(user):
+    """الكارت يظهر للـ Sub Admin فقط (السوبر أدمن ملوش علاقة بالتكييفات)."""
+    role_code = str((user or {}).get("role_code", "") or "").strip().upper()
+    return role_code in AC_VISIBLE_ROLES
+
+
 def can_confirm_ac_change(user):
     user = user or {}
     permissions = user.get("permissions")
@@ -308,14 +355,14 @@ HISTORY_LABELS_AR = {
 def history_rows(now, records, tracking_start=None, days=HISTORY_DAYS):
     """
     records: {scheduled_datetime: {confirmed_at, confirmed_by, status, delay_minutes, delay_reason}}
-    بترجّع صف لكل موعد (الأحدث أولًا): اللي ملوش سجل = غير مؤكدة.
+    بترجّع صف لكل موعد مطلوب تأكيده (الأحدث أولًا): اللي ملوش سجل = غير مؤكدة.
     """
     start = now - timedelta(days=days)
     if tracking_start is not None:
         start = max(start, tracking_start)
 
     rows = []
-    for slot in reversed(slots_between(start, now)):
+    for slot in reversed(slots_between(start, now, required_only=True)):
         record = records.get(slot)
         if record is None:
             key = HISTORY_UNCONFIRMED

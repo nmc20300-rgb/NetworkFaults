@@ -30,6 +30,7 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequ
 
 from database import get_connection, get_prayer_times
 from .ac_alert import AcAlertCard
+from .ac_schedule import can_see_ac_alert
 from .dashboard_charts import (
     DonutChart,
     HBarChart,
@@ -815,9 +816,12 @@ class DashboardPage(QWidget):
             cards_layout.setColumnStretch(col, 1)
         main_column.addLayout(cards_layout)
 
-        # ---------- تنبيه تبديل التكييف (ارتفاع ثابت) ----------
-        self.ac_card = AcAlertCard(self.current_user)
-        main_column.addWidget(self.ac_card)
+        # ---------- تنبيه تبديل التكييف (للـ Sub Admin فقط، ارتفاع ثابت) ----------
+        # السوبر أدمن ملوش علاقة بالتكييفات: الكارت مش بيتنشأ أصلًا (لا Timers ولا استعلامات).
+        self.ac_card = None
+        if can_see_ac_alert(self.current_user):
+            self.ac_card = AcAlertCard(self.current_user)
+            main_column.addWidget(self.ac_card)
 
         # ---------- Charts (صف واحد: أجهزة | أعطال | آخر 7 أيام) ----------
         middle = QGridLayout()
