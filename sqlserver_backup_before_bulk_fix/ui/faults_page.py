@@ -1034,11 +1034,11 @@ class FaultReportsDialog(QDialog):
         buttons = QHBoxLayout()
 
         self.refresh_button = QPushButton(
-            "↻ تحديث"
+            " تحديث"
         )
 
         self.print_button = QPushButton(
-            "🖨 معاينة وطباعة"
+            " معاينة وطباعة"
         )
 
         self.close_button = QPushButton(

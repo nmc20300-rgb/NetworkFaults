@@ -151,12 +151,12 @@ class ReportsPage(QWidget):
         title_layout.addLayout(title_box)
         title_layout.addStretch()
 
-        self.refresh_button = QPushButton("↻ تحديث")
+        self.refresh_button = QPushButton(" تحديث")
         self.refresh_button.setObjectName("secondaryButton")
         self.refresh_button.clicked.connect(self.load_report)
         title_layout.addWidget(self.refresh_button)
 
-        self.print_button = QPushButton("🖨 معاينة وطباعة")
+        self.print_button = QPushButton(" معاينة وطباعة")
         self.print_button.setObjectName("primaryButton")
         self.print_button.clicked.connect(self.print_report)
         title_layout.addWidget(self.print_button)

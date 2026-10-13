@@ -1239,7 +1239,7 @@ class SparePartsPage(QWidget):
         header.addLayout(title_box)
         header.addStretch()
 
-        self.add_button = QPushButton("＋ إضافة قطعة")
+        self.add_button = QPushButton(" إضافة قطعة")
         self.add_button.setObjectName("primaryButton")
         self.edit_button = QPushButton("✎ تعديل")
         self.edit_button.setObjectName("secondaryButton")

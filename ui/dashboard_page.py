@@ -1,7 +1,14 @@
 import json
 from datetime import date, datetime, timedelta
 
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QUrl, Qt, QTimer
+from PySide6.QtCore import (
+    QEasingCurve,
+    QPropertyAnimation,
+    QUrl,
+    Qt,
+    QTimer,
+    QVariantAnimation,
+)
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (
     QWidget,
@@ -13,15 +20,23 @@ from PySide6.QtWidgets import (
     QFrame,
     QBoxLayout,
     QGraphicsOpacityEffect,
-    QProgressBar,
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
     QSizePolicy,
+    QScrollArea,
 )
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 
-from database import get_connection
+from database import get_connection, get_prayer_times
+from .ac_alert import AcAlertCard
+from .dashboard_charts import (
+    DonutChart,
+    HBarChart,
+    TrendChart,
+    faults_per_day,
+)
+
 
 # محاذاة لليمين بشكل مطلق (بدون انعكاس تلقائي في الواجهات RTL)
 ALIGN_RIGHT = Qt.AlignRight | Qt.AlignAbsolute | Qt.AlignVCenter
@@ -218,6 +233,7 @@ class ClockCard(QFrame):
 
 # =============================================================
 # بطاقة إحصائية (بدون أيقونات؛ لون واحد يدل على الحالة فقط)
+# الرقم بيعدّ بسلاسة لحد القيمة الجديدة (400ms)
 # =============================================================
 class StatCard(QFrame):
     def __init__(self, title, value="0", dot_color="#0e9aaa"):
@@ -247,8 +263,30 @@ class StatCard(QFrame):
         self.value_label.setAlignment(ALIGN_RIGHT)
         layout.addWidget(self.value_label)
 
+        self._shown = 0
+        self._target = None
+        self._count_anim = QVariantAnimation(self)
+        self._count_anim.setDuration(400)
+        self._count_anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._count_anim.valueChanged.connect(self._on_count)
+
+    def _on_count(self, value):
+        self._shown = int(value)
+        self.value_label.setText(str(self._shown))
+
     def set_value(self, value, tone=""):
-        self.value_label.setText(str(value))
+        target = int(value)
+        if target != self._target:
+            self._count_anim.stop()
+            self._target = target
+            if self.isVisible():
+                self._count_anim.setStartValue(self._shown)
+                self._count_anim.setEndValue(target)
+                self._count_anim.start()
+            else:
+                self._shown = target
+                self.value_label.setText(str(target))
+
         self.value_label.setProperty("tone", tone)
         self.value_label.style().unpolish(self.value_label)
         self.value_label.style().polish(self.value_label)
@@ -428,18 +466,36 @@ class PrayerTimesPanel(QFrame):
             return
 
         self._last_load_attempt = datetime.now()
-        request_date = datetime.now().strftime("%d-%m-%Y")
-        url = (
-            "https://api.aladhan.com/v1/timings/"
-            f"{request_date}?latitude=31.2001&longitude=29.9187"
-            "&method=5&timezonestring=Africa%2FCairo"
-        )
-        request = QNetworkRequest(QUrl(url))
-        request.setRawHeader(b"User-Agent", b"NetworkFaults-PrayerTimes/1.0")
-        if hasattr(request, "setTransferTimeout"):
-            request.setTransferTimeout(12_000)
-        self.pending_reply = self.network.get(request)
-        self.pending_reply.setProperty("requestedDate", request_date)
+
+        try:
+            now = datetime.now()
+            prayer_data = get_prayer_times(now.date())
+
+            if prayer_data is None:
+                self.times = None
+                for label in self.time_labels.values():
+                    label.setText("--:--")
+                self._show_status("لا توجد مواقيت محفوظة لهذا التاريخ.")
+                return
+
+            self.times = {
+                key: prayer_data[key]
+                for key, _ in self.PRAYERS
+            }
+            self.loaded_date = now.strftime("%d-%m-%Y")
+
+            for key, value in self.times.items():
+                self.time_labels[key].setText(to_12h(value))
+
+            self._update_countdown()
+
+        except Exception as exc:
+            self.times = None
+            for label in self.time_labels.values():
+                label.setText("--:--")
+            self._show_status(
+                f"تعذر قراءة المواقيت من قاعدة البيانات: {exc}"
+            )
 
     def _show_status(self, text):
         self.next_box.hide()
@@ -557,6 +613,22 @@ class DashboardPage(QWidget):
     WARN_STATUSES = {"جديد", "قيد الفحص", "قيد الإصلاح", "بانتظار قطعة غيار"}
     HIGH_PRIORITIES = {"عاجل", "عاجلة", "عالي", "عالية", "حرج", "حرجة", "مرتفع", "مرتفعة"}
 
+    # ألوان الرسوم البيانية (هادية: تيل / كهرماني / سلايت، والأحمر للأعطال فقط)
+    DEVICE_STATUS_COLORS = [
+        ("صالح", "#0e9aaa"),
+        ("يحتاج فحص", "#d97706"),
+        ("عطل", "#dc2626"),
+        ("خارج الخدمة", "#94a3b8"),
+    ]
+    FAULT_STATUS_COLORS = [
+        ("جديد", "#d97706"),
+        ("قيد الفحص", "#e8a33d"),
+        ("قيد الإصلاح", "#0e9aaa"),
+        ("بانتظار قطعة غيار", "#94a3b8"),
+        ("تم الإصلاح", "#22a06b"),
+        ("تم التسليم", "#15803d"),
+    ]
+
     def __init__(self, current_user=None):
         super().__init__()
         self.setObjectName("dashboardPage")
@@ -566,14 +638,19 @@ class DashboardPage(QWidget):
         self.prayer_panel.load_times()
         self.refresh()
 
+        # التحديث التلقائي يشتغل فقط لما الصفحة ظاهرة (توفير على الأجهزة الضعيفة)
         self.refresh_timer = QTimer(self)
-        self.refresh_timer.timeout.connect(self.refresh)
+        self.refresh_timer.timeout.connect(self._auto_refresh)
         self.refresh_timer.start(5000)
 
         # حدّث التحية كل دقيقة لكل المستخدمين.
         self.greeting_timer = QTimer(self)
         self.greeting_timer.timeout.connect(self.update_greeting)
         self.greeting_timer.start(60000)
+
+    def _auto_refresh(self):
+        if self.isVisible():
+            self.refresh()
 
     def is_super_admin(self):
         role_code = str(self.current_user.get("role_code", "") or "").strip().upper()
@@ -651,8 +728,22 @@ class DashboardPage(QWidget):
     # بناء الواجهة
     # =========================================================
     def setup_ui(self):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(28, 24, 28, 18)
+        # الصفحة كلها قابلة للتمرير: الرسوم تحافظ على أحجامها بدل ما تتضغط
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        content = QWidget()
+        content.setObjectName("dashboardContent")
+        self.scroll.setWidget(content)
+        outer.addWidget(self.scroll, 1)
+
+        root = QVBoxLayout(content)
+        root.setContentsMargins(28, 24, 28, 14)
         root.setSpacing(18)
 
         # ---------- Header: التحية + الساعة + تحديث ----------
@@ -724,45 +815,28 @@ class DashboardPage(QWidget):
             cards_layout.setColumnStretch(col, 1)
         main_column.addLayout(cards_layout)
 
-        # ---------- Middle panels ----------
+        # ---------- تنبيه تبديل التكييف (ارتفاع ثابت) ----------
+        self.ac_card = AcAlertCard(self.current_user)
+        main_column.addWidget(self.ac_card)
+
+        # ---------- Charts (صف واحد: أجهزة | أعطال | آخر 7 أيام) ----------
         middle = QGridLayout()
         middle.setSpacing(14)
 
         status_panel = MiniPanel("حالة الأجهزة")
-        self.device_status_layout = QVBoxLayout()
-        self.device_status_layout.setSpacing(10)
-        status_panel.layout.addLayout(self.device_status_layout)
-        status_panel.layout.addStretch(1)
+        self.device_chart = DonutChart("مؤشر التشغيل")
+        status_panel.layout.addWidget(self.device_chart, 1)
         middle.addWidget(status_panel, 0, 0)
 
         fault_panel = MiniPanel("حالة الأعطال")
-        self.fault_status_layout = QVBoxLayout()
-        self.fault_status_layout.setSpacing(10)
-        fault_panel.layout.addLayout(self.fault_status_layout)
-        fault_panel.layout.addStretch(1)
+        self.fault_chart = HBarChart()
+        fault_panel.layout.addWidget(self.fault_chart, 1)
         middle.addWidget(fault_panel, 0, 1)
 
-        health_panel = MiniPanel("مؤشر التشغيل")
-        health_panel.layout.addStretch(1)
-        self.health_value = QLabel("0%")
-        self.health_value.setObjectName("healthValue")
-        self.health_value.setAlignment(Qt.AlignCenter)
-        health_panel.layout.addWidget(self.health_value)
-
-        self.health_bar = QProgressBar()
-        self.health_bar.setRange(0, 100)
-        self.health_bar.setTextVisible(False)
-        self.health_bar.setFixedHeight(8)
-        self.health_bar.setObjectName("healthBar")
-        health_panel.layout.addWidget(self.health_bar)
-
-        self.health_hint = QLabel("")
-        self.health_hint.setObjectName("healthHint")
-        self.health_hint.setAlignment(Qt.AlignCenter)
-        self.health_hint.setWordWrap(True)
-        health_panel.layout.addWidget(self.health_hint)
-        health_panel.layout.addStretch(1)
-        middle.addWidget(health_panel, 0, 2)
+        trend_panel = MiniPanel("الأعطال المسجلة آخر 7 أيام")
+        self.trend_chart = TrendChart()
+        trend_panel.layout.addWidget(self.trend_chart, 1)
+        middle.addWidget(trend_panel, 0, 2)
 
         for col in range(3):
             middle.setColumnStretch(col, 1)
@@ -781,15 +855,20 @@ class DashboardPage(QWidget):
         self.recent_table.setShowGrid(False)
         self.recent_table.setFocusPolicy(Qt.NoFocus)
         self.recent_table.verticalHeader().setVisible(False)
-        self.recent_table.verticalHeader().setDefaultSectionSize(40)
+        self.recent_table.verticalHeader().setDefaultSectionSize(38)
         self.recent_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.recent_table.horizontalHeader().setHighlightSections(False)
-        self.recent_table.setMinimumHeight(240)
+        # الجدول بياخد ارتفاعه على قد الصفوف (من غير سكرول داخلي)
+        self.recent_table.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.recent_table.horizontalHeader().setFixedHeight(36)
+        self.recent_table.setFixedHeight(36 + 38 * 5 + 4)
         recent_panel.layout.addWidget(self.recent_table)
-        main_column.addWidget(recent_panel, 1)
+        main_column.addWidget(recent_panel)
 
         # ---------- Footer (الأسماء + آخر تحديث بخط صغير هادي) ----------
-        footer = QHBoxLayout()
+        footer_box = QWidget()
+        footer = QHBoxLayout(footer_box)
+        footer.setContentsMargins(28, 4, 28, 10)
         credits = QLabel(
             "قائد شبكة الربط عميد أحمد صلاح   ·   المطورون  Ahmed Abozead -- Hamdy Haggag"
         )
@@ -799,11 +878,21 @@ class DashboardPage(QWidget):
         self.footer = QLabel("آخر تحديث --")
         self.footer.setObjectName("dashboardFooter")
         footer.addWidget(self.footer)
-        root.addLayout(footer)
+        outer.addWidget(footer_box)
 
         # ---------- Style ----------
         self.setStyleSheet("""
-            #dashboardPage { background: #f6f8fb; }
+            #dashboardPage, #dashboardContent { background: #f6f8fb; }
+            QScrollArea { background: transparent; border: none; }
+
+            /* سكرول رفيع وهادي */
+            QScrollBar:vertical { width: 8px; background: transparent; margin: 2px; }
+            QScrollBar::handle:vertical {
+                background: #cfd8e1; border-radius: 4px; min-height: 30px;
+            }
+            QScrollBar::handle:vertical:hover { background: #b6c4d0; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical { background: transparent; }
 
             /* الهيدر */
             #greetingLabel { color: #0f2338; font-size: 22px; font-weight: 800; }
@@ -836,10 +925,6 @@ class DashboardPage(QWidget):
             #cardValue { color: #0f2338; font-size: 30px; font-weight: 800; }
             #cardValue[tone="warn"] { color: #b45309; }
             #panelTitle { color: #0f2338; font-size: 14px; font-weight: 800; }
-            #healthValue { color: #0f2338; font-size: 40px; font-weight: 800; }
-            #healthBar { border: none; background: #edf1f5; border-radius: 4px; }
-            #healthBar::chunk { background: #0e9aaa; border-radius: 4px; }
-            #healthHint { color: #64748b; font-size: 12px; padding-top: 4px; }
 
             /* الجدول */
             QTableWidget {
@@ -910,53 +995,12 @@ class DashboardPage(QWidget):
         self.update_greeting()
 
     # =============================================================
-    # Clear Layout
-    # =============================================================
-    def _clear_layout(self, layout):
-        while layout.count():
-            item = layout.takeAt(0)
-            widget = item.widget()
-            child_layout = item.layout()
-            if widget:
-                widget.deleteLater()
-            elif child_layout:
-                self._clear_layout(child_layout)
-
-    # =============================================================
-    # Status Row (الصفر يظهر بلون باهت عشان ما يشدش العين)
-    # =============================================================
-    def _add_status_row(self, layout, label, count, total):
-        row = QHBoxLayout()
-        row.setSpacing(10)
-        name = QLabel(label)
-        name.setMinimumWidth(110)
-        name.setStyleSheet("color:#475569; font-size:12px; font-weight:600;")
-
-        bar = QProgressBar()
-        bar.setRange(0, max(total, 1))
-        bar.setValue(count)
-        bar.setTextVisible(False)
-        bar.setFixedHeight(6)
-        bar.setStyleSheet("""
-            QProgressBar { border: none; background: #edf1f5; border-radius: 3px; }
-            QProgressBar::chunk { background: #0e9aaa; border-radius: 3px; }
-        """)
-
-        number = QLabel(str(count))
-        number.setAlignment(Qt.AlignCenter)
-        number.setMinimumWidth(34)
-        number_color = "#0f2338" if count else "#b0bcc8"
-        number.setStyleSheet(f"color:{number_color}; font-size:12px; font-weight:800;")
-        row.addWidget(name)
-        row.addWidget(bar, 1)
-        row.addWidget(number)
-        layout.addLayout(row)
-
-    # =============================================================
     # Refresh
     # =============================================================
     def refresh(self):
         self.update_greeting()
+        scroll_bar = self.scroll.verticalScrollBar()
+        scroll_pos = scroll_bar.value()
         connection = get_connection()
         cursor = connection.cursor()
 
@@ -966,17 +1010,7 @@ class DashboardPage(QWidget):
             return (result[0] or 0) if result else 0
 
         try:
-            cursor.execute("""
-                SELECT
-                    COUNT(*) AS total,
-                    SUM(CASE WHEN is_archived = 0 THEN 1 ELSE 0 END) AS active,
-                    SUM(CASE WHEN is_archived = 1 THEN 1 ELSE 0 END) AS archived,
-                    SUM(CASE WHEN is_archived IS NULL THEN 1 ELSE 0 END) AS null_archived
-                FROM devices
-            """)
-            debug = cursor.fetchone()
-            total_devices = debug["total"] or 0
-
+            total_devices = count("SELECT COUNT(*) FROM devices")
             total_faults = count("SELECT COUNT(*) FROM faults")
             open_faults = count("""
                 SELECT COUNT(*) FROM faults
@@ -1002,29 +1036,53 @@ class DashboardPage(QWidget):
                 missing_spare_parts, "warn" if missing_spare_parts else ""
             )
 
-            device_statuses = ["صالح", "يحتاج فحص", "عطل", "خارج الخدمة"]
-            self._clear_layout(self.device_status_layout)
-            for status in device_statuses:
-                value = count("SELECT COUNT(*) FROM devices WHERE status = ?", (status,))
-                self._add_status_row(self.device_status_layout, status, value, total_devices)
+            # ---------- حالات الأجهزة (استعلام واحد) ----------
+            cursor.execute("""
+                SELECT LTRIM(RTRIM(ISNULL(status, N''))), COUNT(*)
+                FROM devices
+                GROUP BY LTRIM(RTRIM(ISNULL(status, N'')))
+            """)
+            device_counts = {row[0]: row[1] for row in cursor.fetchall()}
+            self.device_chart.set_data(
+                [
+                    (status, device_counts.get(status, 0), color)
+                    for status, color in self.DEVICE_STATUS_COLORS
+                ]
+            )
 
-            fault_statuses = [
-                "جديد", "قيد الفحص", "قيد الإصلاح", "بانتظار قطعة غيار",
-                "تم الإصلاح", "تم التسليم",
-            ]
-            self._clear_layout(self.fault_status_layout)
-            for status in fault_statuses:
-                value = count("SELECT COUNT(*) FROM faults WHERE status = ?", (status,))
-                self._add_status_row(self.fault_status_layout, status, value, total_faults)
+            # ---------- حالات الأعطال (استعلام واحد) ----------
+            cursor.execute("""
+                SELECT LTRIM(RTRIM(ISNULL(status, N''))), COUNT(*)
+                FROM faults
+                GROUP BY LTRIM(RTRIM(ISNULL(status, N'')))
+            """)
+            fault_counts = {row[0]: row[1] for row in cursor.fetchall()}
+            self.fault_chart.set_data(
+                [
+                    (status, fault_counts.get(status, 0), color)
+                    for status, color in self.FAULT_STATUS_COLORS
+                ],
+                total=total_faults,
+            )
 
+            # ---------- الأعطال آخر 7 أيام ----------
+            # لو بتسجل أكتر من ~70 عطل في اليوم زوّد الـ TOP.
+            cursor.execute("SELECT TOP 500 entry_date FROM faults ORDER BY id DESC")
+            today = date.today()
+            self.trend_chart.set_data(
+                [
+                    ("اليوم" if day == today else ARABIC_WEEKDAYS[day.weekday()], n)
+                    for day, n in faults_per_day([r[0] for r in cursor.fetchall()])
+                ]
+            )
+
+            # ---------- مؤشر التشغيل ----------
             healthy = count("""
                 SELECT COUNT(*) FROM devices
                 WHERE is_archived = 0 AND LTRIM(RTRIM(status)) = N'صالح'
             """)
             active_devices = count("SELECT COUNT(*) FROM devices WHERE is_archived = 0")
             health = round((healthy / active_devices) * 100) if active_devices else 0
-            self.health_value.setText(f"{health}%")
-            self.health_bar.setValue(health)
 
             if health >= 90:
                 hint = "ممتاز — أغلب الأجهزة تعمل بصورة طبيعية."
@@ -1034,10 +1092,12 @@ class DashboardPage(QWidget):
                 hint = "يحتاج متابعة — نسبة الأجهزة غير السليمة مرتفعة."
             else:
                 hint = "لا توجد أجهزة نشطة حتى الآن."
-            self.health_hint.setText(hint)
+            self.device_chart.set_center(f"{health}%", "مؤشر التشغيل")
+            self.device_chart.setToolTip(hint)
 
+            # ---------- آخر الأعطال ----------
             cursor.execute("""
-                SELECT TOP 10
+                SELECT TOP 5
                     faults.fault_number,
                     faults.entry_date,
                     devices.device_name,
@@ -1049,10 +1109,8 @@ class DashboardPage(QWidget):
                 ORDER BY faults.id DESC
             """)
             recent = cursor.fetchall()
-            self.recent_table.setRowCount(0)
-            for fault in recent:
-                row = self.recent_table.rowCount()
-                self.recent_table.insertRow(row)
+            self.recent_table.setRowCount(len(recent))
+            for row, fault in enumerate(recent):
                 status = str(fault["status"] or "").strip()
                 priority = str(fault["priority"] or "").strip()
                 values = [
@@ -1094,6 +1152,7 @@ class DashboardPage(QWidget):
             )
         finally:
             connection.close()
+            scroll_bar.setValue(scroll_pos)
 
     # =============================================================
     # Show Event

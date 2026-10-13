@@ -40,6 +40,7 @@ from PySide6.QtWidgets import (
 )
 
 from database import get_connection, write_audit_log
+from ui.org_cache import OrgStructureCache
 
 
 # =============================================================
@@ -423,6 +424,180 @@ QDialogButtonBox QPushButton {
 QDialogButtonBox QPushButton:hover {
     background: #eef3f7;
 }
+
+/* ---------- أزرار شريط الأدوات الجديد (مثل شاشة الأجهزة) ---------- */
+
+#faultsAddBtn {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0891b2, stop:1 #06b6d4);
+    color: white;
+    border: none;
+    border-radius: 9px;
+    padding: 0 16px;
+    min-height: 38px;
+    max-height: 38px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+#faultsAddBtn:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0e7490, stop:1 #0891b2);
+}
+
+#faultsAddBtn:pressed {
+    background: #155e75;
+}
+
+#faultsImportBtn {
+    background: #ecfeff;
+    color: #0e7490;
+    border: 1px solid #a5f3fc;
+    border-radius: 9px;
+    padding: 0 15px;
+    min-height: 38px;
+    max-height: 38px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+#faultsImportBtn:hover {
+    background: #cffafe;
+    border-color: #67e8f9;
+    color: #0891b2;
+}
+
+#faultsImportBtn:pressed {
+    background: #a5f3fc;
+}
+
+#faultsMoreBtn {
+    background: white;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    padding: 0 14px;
+    min-height: 38px;
+    max-height: 38px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+#faultsMoreBtn:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    color: #0f172a;
+}
+
+#faultsMoreBtn:pressed {
+    background: #e2e8f0;
+}
+
+#faultsMoreBtn::menu-indicator {
+    image: none;
+    width: 0;
+}
+
+#selectionBar {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 9px;
+}
+
+#selectionBadge {
+    color: #166534;
+    font-weight: 800;
+    font-size: 12px;
+    padding: 0 4px;
+}
+
+#faultsEditBtn {
+    background: white;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    padding: 0 13px;
+    min-height: 30px;
+    max-height: 30px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+#faultsEditBtn:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    color: #0f172a;
+}
+
+#faultsEditBtn:pressed {
+    background: #e2e8f0;
+}
+
+#faultsDeleteBtn {
+    background: #fff1f2;
+    color: #e11d48;
+    border: 1px solid #fecdd3;
+    border-radius: 7px;
+    padding: 0 13px;
+    min-height: 30px;
+    max-height: 30px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+#faultsDeleteBtn:hover {
+    background: #ffe4e6;
+    border-color: #fda4af;
+    color: #be123c;
+}
+
+#faultsDeleteBtn:pressed {
+    background: #fecdd3;
+}
+
+#selectionDeselectBtn {
+    background: transparent;
+    color: #64748b;
+    border: none;
+    border-radius: 6px;
+    padding: 2px 8px;
+    min-height: 30px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+#selectionDeselectBtn:hover {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+QMenu {
+    background: white;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    padding: 5px;
+    font-size: 12px;
+}
+
+QMenu::item {
+    padding: 7px 20px;
+    border-radius: 6px;
+    color: #334155;
+    font-weight: 600;
+}
+
+QMenu::item:selected {
+    background: #f1f5f9;
+    color: #0f2338;
+}
+
+QMenu::item:disabled {
+    color: #cbd5e1;
+}
+
+QMenu::separator {
+    height: 1px;
+    background: #e2e8f0;
+    margin: 4px 6px;
+}
 """
 
 
@@ -556,7 +731,7 @@ class FaultDialog(QDialog):
         hl = QHBoxLayout(header)
         hl.setContentsMargins(16, 13, 16, 13)
 
-        icon = QLabel("⚠")
+        icon = QLabel("")
         icon.setObjectName("dialogHeaderIcon")
         icon.setAlignment(Qt.AlignCenter)
         icon.setFixedSize(42, 42)
@@ -1539,6 +1714,9 @@ class FaultsPage(QWidget):
         self.load_building_filter()
         self.load_technician_filter()
 
+        # استماع لتغييرات الهيكل التنظيمي — تحديث فلتر المباني تلقائياً
+        OrgStructureCache.instance().data_changed.connect(self.load_building_filter)
+
         self.load_faults()
 
     # =========================================================
@@ -1555,6 +1733,8 @@ class FaultsPage(QWidget):
 
         # ---------- العنوان والأزرار ----------
         title_layout = QHBoxLayout()
+        title_layout.setSpacing(8)
+        title_layout.setAlignment(Qt.AlignVCenter)
 
         title_box = QVBoxLayout()
         title_box.setSpacing(2)
@@ -1570,37 +1750,78 @@ class FaultsPage(QWidget):
         title_layout.addLayout(title_box)
         title_layout.addStretch()
 
-        self.add_button = QPushButton("＋  إضافة عطل")
-        self.add_button.setObjectName("primaryButton")
-        self.add_button.clicked.connect(self.add_fault)
+        # ---- شريط التحديد (يظهر فقط عند اختيار صفوف) ----
+        self.selection_bar = QFrame()
+        self.selection_bar.setObjectName("selectionBar")
+        sel_layout = QHBoxLayout(self.selection_bar)
+        sel_layout.setContentsMargins(8, 2, 8, 2)
+        sel_layout.setSpacing(6)
+
+        self.selection_label = QLabel("")
+        self.selection_label.setObjectName("selectionBadge")
+        sel_layout.addWidget(self.selection_label)
 
         self.edit_button = QPushButton("✎  تعديل")
-        self.edit_button.setObjectName("secondaryButton")
-        self.edit_button.clicked.connect(self.edit_fault)
+        self.edit_button.setObjectName("faultsEditBtn")
+        self.edit_button.setCursor(Qt.PointingHandCursor)
+        self.edit_button.setToolTip("تعديل العطل المحدد")
+        self.edit_button.clicked.connect(lambda: self.edit_fault())
+        sel_layout.addWidget(self.edit_button)
 
-        self.delete_button = QPushButton("حذف")
-        self.delete_button.setObjectName("dangerButton")
+        self.delete_button = QPushButton("🗑  حذف")
+        self.delete_button.setObjectName("faultsDeleteBtn")
+        self.delete_button.setCursor(Qt.PointingHandCursor)
+        self.delete_button.setToolTip("حذف العطل أو الأعطال المحددة")
         self.delete_button.clicked.connect(lambda: self.delete_fault())
+        sel_layout.addWidget(self.delete_button)
 
-        self.report_button = QPushButton("تقرير يومي / أسبوعي")
-        self.report_button.setObjectName("secondaryButton")
-        self.report_button.clicked.connect(self.show_reports)
+        self.deselect_button = QPushButton("✕  إلغاء")
+        self.deselect_button.setObjectName("selectionDeselectBtn")
+        self.deselect_button.setCursor(Qt.PointingHandCursor)
+        self.deselect_button.setToolTip("إلغاء التحديد")
+        self.deselect_button.clicked.connect(lambda: self.table.clearSelection())
+        sel_layout.addWidget(self.deselect_button)
 
-        self.import_button = QPushButton("استيراد Excel")
-        self.import_button.setObjectName("secondaryButton")
-        self.import_button.clicked.connect(self.import_from_excel)
+        self.selection_bar.setVisible(False)
+        title_layout.addWidget(self.selection_bar)
 
+        # ---- الزر الرئيسي ----
+        self.add_button = QPushButton(" إضافة عطل")
+        self.add_button.setObjectName("faultsAddBtn")
+        self.add_button.setCursor(Qt.PointingHandCursor)
+        self.add_button.setToolTip("تسجيل عطل جديد")
+        self.add_button.clicked.connect(self.add_fault)
         title_layout.addWidget(self.add_button)
-        title_layout.addWidget(self.edit_button)
-        title_layout.addWidget(self.delete_button)
-        title_layout.addWidget(self.report_button)
+
+        # ---- استيراد ----
+        self.import_button = QPushButton("  استيراد Excel")
+        self.import_button.setObjectName("faultsImportBtn")
+        self.import_button.setCursor(Qt.PointingHandCursor)
+        self.import_button.setToolTip("استيراد الأعطال دفعة واحدة من ملف Excel")
+        self.import_button.clicked.connect(self.import_from_excel)
         title_layout.addWidget(self.import_button)
 
-        self.select_all_button = QPushButton("تحديد الكل")
-        self.select_all_button.setObjectName("secondaryButton")
-        self.select_all_button.setToolTip("تحديد جميع الأعطال الظاهرة في الصفحة الحالية")
-        self.select_all_button.clicked.connect(lambda: self.table.selectAll())
-        title_layout.addWidget(self.select_all_button)
+        # ---- قائمة خيارات ----
+        self.more_button = QPushButton("خيارات ▾")
+        self.more_button.setObjectName("faultsMoreBtn")
+        self.more_button.setCursor(Qt.PointingHandCursor)
+        self.more_button.setToolTip("خيارات إضافية للجدول والتقارير")
+
+        more_menu = QMenu(self.more_button)
+
+        self.act_select_all = more_menu.addAction("  تحديد الكل")
+        self.act_select_all.triggered.connect(self.toggle_select_all)
+
+        more_menu.addSeparator()
+
+        self.act_report = more_menu.addAction("  تقرير الأعطال حسب فترة...")
+        self.act_report.triggered.connect(self.show_reports)
+
+        self.act_print_filtered = more_menu.addAction("  طباعة نتائج الفلتر")
+        self.act_print_filtered.triggered.connect(self.print_filtered_report)
+
+        self.more_button.setMenu(more_menu)
+        title_layout.addWidget(self.more_button)
 
         main_layout.addLayout(title_layout)
 
@@ -1670,12 +1891,6 @@ class FaultsPage(QWidget):
         self.clear_filters_button.setObjectName("clearFilterButton")
         self.clear_filters_button.clicked.connect(self.clear_fault_filters)
         search_layout.addWidget(self.clear_filters_button)
-
-        self.print_filtered_button = QPushButton("طباعة نتائج الفلتر")
-        self.print_filtered_button.setObjectName("secondaryButton")
-        self.print_filtered_button.setToolTip("طباعة جميع النتائج المطابقة للفلاتر الحالية")
-        self.print_filtered_button.clicked.connect(self.print_filtered_report)
-        search_layout.addWidget(self.print_filtered_button)
 
         main_layout.addWidget(search_card)
 
@@ -1858,6 +2073,9 @@ class FaultsPage(QWidget):
         select_all_shortcut = QShortcut(QKeySequence("Ctrl+A"), self.table)
         select_all_shortcut.setContext(Qt.WidgetShortcut)
         select_all_shortcut.activated.connect(self.table.selectAll)
+        QShortcut(QKeySequence(Qt.Key_Escape), self.table).activated.connect(
+            self.table.clearSelection
+        )
         QShortcut(QKeySequence("F5"), self).activated.connect(
             self.refresh_all
         )
@@ -1888,12 +2106,43 @@ class FaultsPage(QWidget):
         self.notice_label.setText(message)
         self._notice_timer.start()
 
-    def update_action_buttons(self):
-        """التعديل والحذف يتفعلوا فقط عند اختيار عطل."""
-        has_selection = bool(self.table.selectedItems())
+    def toggle_select_all(self):
+        """تحديد أو إلغاء تحديد كل الصفوف الظاهرة بضغطة واحدة."""
+        selected = len({i.row() for i in self.table.selectedIndexes()})
+        total = self.table.rowCount()
 
-        self.edit_button.setEnabled(has_selection)
-        self.delete_button.setEnabled(has_selection)
+        if total == 0:
+            return
+
+        if selected >= total:
+            self.table.clearSelection()
+        else:
+            self.table.selectAll()
+
+    def update_action_buttons(self):
+        """يظهر شريط التحديد (تعديل / حذف / إلغاء) فقط عند اختيار صفوف."""
+        selected = len({i.row() for i in self.table.selectedIndexes()})
+        total = self.table.rowCount()
+
+        self.act_select_all.setText(
+            "  إلغاء التحديد"
+            if total > 0 and selected >= total
+            else "  تحديد الكل"
+        )
+
+        can_edit = self.has_permission("faults.edit")
+        can_delete = self.has_permission("faults.delete")
+
+        if selected > 0 and (can_edit or can_delete):
+            self.selection_bar.setVisible(True)
+            self.selection_label.setText(f"✔  {selected} محدد")
+            self.edit_button.setVisible(selected == 1 and can_edit)
+            self.delete_button.setVisible(can_delete)
+            self.delete_button.setText(
+                f"🗑  حذف ({selected})" if selected > 1 else "🗑  حذف"
+            )
+        else:
+            self.selection_bar.setVisible(False)
 
     def show_table_menu(self, pos):
         item = self.table.itemAt(pos)
@@ -2013,7 +2262,7 @@ class FaultsPage(QWidget):
         def val(key): return html.escape(str(fault[key] or ""))
         page = f"""<!doctype html><html lang='ar' dir='rtl'><head><meta charset='utf-8'><title>سند تسليم واستلام جهاز</title><style>
 @page{{size:A4 portrait;margin:9mm 11mm}}*{{box-sizing:border-box}}body{{font-family:Tahoma,Arial,sans-serif;color:#172536;margin:0;font-size:10.5px;line-height:1.42}}.masthead{{display:flex;justify-content:space-between;align-items:center;border-bottom:2px solid #17324d;padding-bottom:6px;margin-bottom:8px}}.identity{{color:#263d52;line-height:1.5}}.mark{{border:1.5px solid #a88947;color:#17324d;padding:5px 12px;text-align:center;font-weight:bold}}h1{{text-align:center;color:#17324d;font-size:18px;margin:7px 0 2px}}.subtitle{{text-align:center;color:#637386;margin:0 0 8px;font-size:10px}}.meta{{display:flex;justify-content:space-between;background:#f2f5f7;border:1px solid #cbd5e1;padding:5px 8px;margin-bottom:7px;font-size:10px}}.box{{border:1px solid #9aa9b7;padding:7px 11px;margin:7px 0}}.box h2{{font-size:11px;color:#17324d;border-bottom:1px solid #cbd5e1;padding-bottom:3px;margin:0 0 4px}}.row{{display:flex;gap:10px;margin:3px 0}}.field{{flex:1;border-bottom:1px dotted #758596;min-height:21px}}.label{{font-weight:bold;color:#34495e}}.description{{min-height:22px;max-height:31px;border:1px solid #d5dde4;padding:4px 6px;margin:3px 0;overflow:hidden;font-size:10px;line-height:1.35}}.declaration{{border:1px solid #a88947;background:#faf9f5;padding:7px 9px;margin-top:8px;font-size:10px}}.sign{{display:flex;justify-content:space-between;gap:18px;margin-top:25px}}.signbox{{width:48%;border-top:1px solid #758596;padding-top:4px;text-align:center;min-height:56px;font-size:10px;line-height:1.55}}.stamp{{position:absolute;left:11mm;bottom:17mm;width:32mm;height:21mm;border:1px dashed #aab4be;color:#778493;text-align:center;padding-top:5px;font-size:9px}}.footer{{position:fixed;bottom:-5mm;border-top:1px solid #aeb9c3;padding-top:3px;width:100%;font-size:8px;color:#586879}}@media print{{button{{display:none}}html,body{{height:279mm;max-height:279mm;overflow:hidden}}.masthead,.box,.declaration,.sign{{break-inside:avoid;page-break-inside:avoid}}.description{{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}}}}
-</style></head><body><header class='masthead'><div class='identity'><b>الجهة / الإدارة:</b> ................................<br><b>الوحدة:</b> ..........................................</div><div class='mark'>سند عهدة جهاز<br>تسليم واستلام</div></header><h1>سند تسليم واستلام جهاز</h1><p class='subtitle'>نموذج إثبات تسليم الجهاز للمستخدم بعد أعمال الفحص أو الصيانة</p><div class='meta'><span><b>رقم العطل:</b> {val('fault_number')}</span><span><b>تاريخ تحرير السند:</b> {html.escape(datetime.now().strftime('%Y-%m-%d'))}</span><span><b>تاريخ التسليم:</b> {val('delivery_date')}</span></div><section class='box'><h2>بيانات المستلم والجهاز</h2><div class='row'><div class='field'><span class='label'>اسم المستخدم:</span> {val('user_name')}</div><div class='field'><span class='label'>اسم المستلم:</span> {val('receiver_name')}</div></div><div class='row'><div class='field'><span class='label'>نوع / اسم الجهاز:</span> {val('device_name')}</div><div class='field'><span class='label'>رقم الجهاز:</span> {val('device_number')}</div></div><div class='row'><div class='field'><span class='label'>الرقم التسلسلي:</span> {val('serial_number')}</div><div class='field'><span class='label'>المبنى / الوحدة:</span> {val('building_name')}</div></div></section><section class='box'><h2>بيانات الصيانة</h2><div><b>وصف العطل:</b><div class='description'>{val('fault_description')}</div></div><div><b>الإجراء المتخذ:</b><div class='description'>{val('repair_actions')}</div></div><div class='row'><div class='field'><span class='label'>قطع الغيار:</span> {val('spare_parts')}</div><div class='field'><span class='label'>الحالة:</span> {val('status')}</div></div></section><div class='declaration'><b>إقرار الاستلام:</b> أقر أنا الموقع أدناه باستلام الجهاز الموضحة بياناته أعلاه، وأؤكد استلامه بحالته المبينة، وأتحمل مسؤولية المحافظة عليه وفق التعليمات المعمول بها.</div><div class='sign'><div class='signbox'><b>المستلم</b><br>الاسم: ........................................<br>التوقيع: .......................................<br>التاريخ: ........................................</div><div class='signbox'><b>المسلِّم / مسؤول الصيانة</b><br>الاسم: ........................................<br>التوقيع: .......................................<br>التاريخ: ........................................</div></div><div class='stamp'>ختم الجهة</div><footer class='footer'>يحرر هذا السند من نسختين عند الحاجة، وتحفظ نسخة ضمن سجل العطل.</footer><script>window.onload=()=>window.print()</script></body></html>"""
+</style></head><body><header class='masthead'><div class='identity'><b>الجهة / الإدارة:</b> ................................<br><b>الوحدة:</b> ..........................................</div><div class='mark'>سند عهدة جهاز<br>تسليم واستلام</div></header><h1>سند تسليم واستلام جهاز</h1><p class='subtitle'>نموذج إثبات تسليم الجهاز للمستخدم بعد أعمال الفحص أو الصيانة</p><div class='meta'><span><b>رقم العطل:</b> {val('fault_number')}</span><span><b>تاريخ تحرير السند:</b> {html.escape(datetime.now().strftime('%Y-%m-%d'))}</span><span><b>تاريخ التسليم:</b> {val('delivery_date')}</span></div><section class='box'><h2>بيانات المستلم والجهاز</h2><div class='row'><div class='field'><span class='label'>اسم المستخدم:</span> {val('user_name')}</div><div class='field'><span class='label'>اسم المستلم:</span> {val('receiver_name')}</div></div><div class='row'><div class='field'><span class='label'>نوع / اسم الجهاز:</span> {val('device_name')}</div><div class='field'><span class='label'>رقم الجهاز:</span> {val('device_number')}</div></div><div class='row'><div class='field'><span class='label'>الرقم التسلسلي:</span> {val('serial_number')}</div><div class='field'><span class='label'>المبنى / الوحدة:</span> {val('building_name')}</div></div></section><section class='box'><h2>بيانات الصيانة</h2><div><b>وصف العطل:</b><div class='description'>{val('fault_description')}</div></div><div><b>الإجراء المتخذ:</b><div class='description'>{val('repair_actions')}</div></div><div class='row'><div class='field'><span class='label'>قطع الغيار:</span> {val('spare_parts')}</div><div class='field'><span class='label'>الحالة:</span> {val('status')}</div></div></section><div class='declaration'><b>إقرار الاستلام:</b> أقر أنا الموقع أدناه باستلام الجهاز الموضحة بياناته أعلاه، وأؤكد استلامه بحالته المبينة، وأتحمل مسؤولية المحافظة عليه وفق التعليمات المعمول بها.</div><div class='sign'><div class='signbox'><b>المستلم</b><br>الاسم: ........................................<br>التوقيع: .......................................<br>التاريخ: ........................................</div><div class='signbox'><b>المسلِّم / مسؤول الصيانة</b><br>الاسم: ........................................<br>التوقيع: .......................................<br>التاريخ: ........................................</div></div><div class='stamp'>ختم الجهة</div><footer class='footer'>يحرر هذا السند من نسختين عند الحاجة، وتحفظ نسخة ضمن سجل العطل.</footer><script>window.onload=()=>window.print()</script></body></html>"""
         self._open_print_page(page, "delivery_receipt")
 
     @staticmethod
@@ -2102,16 +2351,15 @@ class FaultsPage(QWidget):
     def apply_permissions(self):
         can_view = self.has_permission("faults.view")
         can_add = self.has_permission("faults.add")
-        can_edit = self.has_permission("faults.edit")
-        can_delete = self.has_permission("faults.delete")
         can_reports = self.has_permission("reports.view")
 
         self.add_button.setVisible(can_add)
-        self.edit_button.setVisible(can_edit)
-        self.delete_button.setVisible(can_delete)
         self.import_button.setVisible(can_add)
-        self.report_button.setVisible(can_reports)
-        self.print_filtered_button.setVisible(can_reports)
+        self.act_report.setVisible(can_reports)
+        self.act_print_filtered.setVisible(can_reports)
+
+        # زرا التعديل والحذف يتحكم فيهما update_action_buttons
+        # (حسب التحديد والصلاحية)
 
         self.setEnabled(can_view)
 
@@ -2120,31 +2368,19 @@ class FaultsPage(QWidget):
     # =============================================================
 
     def load_building_filter(self):
-        """تحميل كل المباني الموجودة في جدول buildings (حتى لو مفيهاش أعطال)."""
+        """
+        تحميل الوحدات التنظيمية الرئيسية (مبنى / فرع) من الكاش المركزي.
+
+        يتحدث تلقائياً عند أي تعديل في شاشة الهيكل التنظيمي.
+        """
         current_building_id = (
             self.building_filter.currentData()
             if self.building_filter.count() > 0
             else None
         )
 
-        connection = get_connection()
-        cursor = connection.cursor()
-
-        try:
-            cursor.execute("""
-                SELECT
-                    id,
-                    name
-                FROM buildings
-                WHERE name IS NOT NULL
-                  AND LTRIM(RTRIM(name)) <> ''
-                ORDER BY name
-            """)
-
-            buildings = cursor.fetchall()
-
-        finally:
-            connection.close()
+        # جلب الوحدات النشطة من الكاش (مبان + فروع)
+        buildings = OrgStructureCache.instance().get_active_by_types("مبنى", "فرع")
 
         self.building_filter.blockSignals(True)
 
@@ -2154,7 +2390,7 @@ class FaultsPage(QWidget):
 
             for building in buildings:
                 self.building_filter.addItem(
-                    building["name"],
+                    f"[{building['unit_type']}] {building['name']}",
                     building["id"]
                 )
 
@@ -2929,7 +3165,7 @@ class FaultsPage(QWidget):
         has_rows = bool(visible_faults)
 
         self.table.setVisible(has_rows)
-        self.select_all_button.setEnabled(has_rows)
+        self.act_select_all.setEnabled(has_rows)
         self.empty_label.setVisible(not has_rows)
 
         if not has_rows:

@@ -23,6 +23,7 @@ from PySide6.QtGui import QColor, QIcon, QPixmap, QPainter, QMouseEvent
 from PySide6.QtSvg import QSvgRenderer
 
 from database import get_connection, write_audit_log
+from ui.org_cache import OrgStructureCache
 
 
 # ─────────────────────────────────────────────────────────────
@@ -258,7 +259,7 @@ class InkTransactionDialog(QDialog):
         self.record       = record
         self.current_user = current_user or {}
         self.can_edit_date = can_edit_date
-        self._org_units   = load_org_units()
+        self._org_units   = OrgStructureCache.instance().get_active_units()
         self._offices     = []
 
         is_edit = record is not None
@@ -277,7 +278,7 @@ class InkTransactionDialog(QDialog):
         hl = QHBoxLayout(header)
         hl.setContentsMargins(16, 12, 16, 12)
 
-        icon_lbl = QLabel("🖊️")
+        icon_lbl = QLabel("")
         icon_lbl.setObjectName("dialogHeaderIcon")
         icon_lbl.setFixedSize(40, 40)
         icon_lbl.setAlignment(Qt.AlignCenter)
@@ -562,7 +563,7 @@ class InkViewDialog(QDialog):
         header.setObjectName("dialogHeader")
         hl = QHBoxLayout(header)
         hl.setContentsMargins(16, 12, 16, 12)
-        icon_lbl = QLabel("🖊️")
+        icon_lbl = QLabel("")
         icon_lbl.setObjectName("dialogHeaderIcon")
         icon_lbl.setFixedSize(40, 40)
         icon_lbl.setAlignment(Qt.AlignCenter)
@@ -642,6 +643,8 @@ class InkPage(QWidget):
         self._total  = 0
         self._org_units_all = []
         self._build_ui()
+        # الاستماع للكاش: عند أي تغيير في الهيكل التنظيمي تتحدث قائمة الوحدات تلقائياً
+        OrgStructureCache.instance().data_changed.connect(self._on_org_changed)
         self.load_transactions()
 
     # ── Build UI ─────────────────────────────────────────────
@@ -672,7 +675,7 @@ class InkPage(QWidget):
         self.btn_export.clicked.connect(self._export_excel)
         title_row.addWidget(self.btn_export)
 
-        self.btn_add = QPushButton("＋  إضافة حبارة")
+        self.btn_add = QPushButton("  إضافة حبارة")
         self.btn_add.setObjectName("primaryButton")
         self.btn_add.setMinimumHeight(38)
         self.btn_add.clicked.connect(self._add_record)
@@ -904,13 +907,16 @@ class InkPage(QWidget):
             QPushButton#deleteBtn:pressed { background: #fecaca; }
         """)
 
+    # ── تحديث تلقائي عند تغيير الهيكل التنظيمي ─────────────
+
+    def _on_org_changed(self):
+        """يُستدعى تلقائياً عند أي تعديل في شاشة الهيكل التنظيمي."""
+        self._load_filter_units()
+
     # ── Load filter units ────────────────────────────────────
 
     def _load_filter_units(self):
-        try:
-            self._org_units_all = load_org_units()
-        except Exception:
-            self._org_units_all = []
+        self._org_units_all = OrgStructureCache.instance().get_active_units()
 
         # نحتفظ بالوحدة المختارة حاليًا، وما نطلقش بحث أثناء إعادة التحميل
         current_unit_id = self.f_unit.currentData()

@@ -1,5 +1,7 @@
 import pyodbc
 import socket
+import csv
+from datetime import date, datetime, time
 from pathlib import Path
 
 
@@ -481,12 +483,185 @@ def write_audit_log(
 
 
 # =========================================================
+# Prayer Times (local SQL Server table)
+# =========================================================
+
+PRAYER_TIMES_TABLE = "dbo.PrayerTimes"
+
+
+def ensure_prayer_times_table(connection=None):
+    """Create the local prayer-times table if it does not already exist."""
+    owns_connection = connection is None
+    if owns_connection:
+        connection = get_connection()
+
+    cursor = None
+    try:
+        cursor = connection.cursor()
+        cursor.execute("""
+            IF OBJECT_ID(N'dbo.PrayerTimes', N'U') IS NULL
+            BEGIN
+                CREATE TABLE dbo.PrayerTimes (
+                    PrayerDate DATE NOT NULL PRIMARY KEY,
+                    Fajr TIME(0) NOT NULL,
+                    Sunrise TIME(0) NOT NULL,
+                    Dhuhr TIME(0) NOT NULL,
+                    Asr TIME(0) NOT NULL,
+                    Maghrib TIME(0) NOT NULL,
+                    Isha TIME(0) NOT NULL,
+                    DataSource NVARCHAR(250) NOT NULL,
+                    TimeZone NVARCHAR(50) NOT NULL
+                );
+            END
+        """)
+        if owns_connection:
+            connection.commit()
+    except Exception:
+        if owns_connection:
+            connection.rollback()
+        raise
+    finally:
+        if cursor:
+            cursor.close()
+        if owns_connection and connection:
+            connection.close()
+
+
+def import_prayer_times_csv(csv_path, replace_existing=False):
+    """Import the supplied prayer-times CSV into dbo.PrayerTimes.
+
+    By default, refuses to import if records already exist, preventing an
+    accidental duplicate import. Set replace_existing=True only when you
+    explicitly intend to clear and replace the table contents.
+    """
+    required_columns = {
+        "date", "fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha",
+        "source", "timezone",
+    }
+
+    with open(csv_path, "r", encoding="utf-8-sig", newline="") as csv_file:
+        reader = csv.DictReader(csv_file)
+        actual_columns = set(reader.fieldnames or [])
+        missing = required_columns - actual_columns
+        if missing:
+            raise ValueError(
+                "CSV is missing required columns: " + ", ".join(sorted(missing))
+            )
+
+        rows = []
+        for line_number, row in enumerate(reader, start=2):
+            try:
+                prayer_date = date.fromisoformat(row["date"].strip())
+                parsed_times = [
+                    time.fromisoformat(row[key].strip()).replace(second=0, microsecond=0)
+                    for key in ("fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha")
+                ]
+                timezone_name = row["timezone"].strip()
+                data_source = row["source"].strip()
+                if not timezone_name or not data_source:
+                    raise ValueError("source/timezone cannot be empty")
+                rows.append((prayer_date, *parsed_times, data_source, timezone_name))
+            except Exception as exc:
+                raise ValueError(f"Invalid CSV data at line {line_number}: {exc}") from exc
+
+    if not rows:
+        raise ValueError("CSV contains no prayer-time rows")
+
+    connection = get_connection()
+    cursor = None
+    try:
+        ensure_prayer_times_table(connection)
+        cursor = connection.cursor()
+        cursor.execute("SELECT COUNT(*) AS total FROM dbo.PrayerTimes")
+        existing = cursor.fetchone()["total"]
+
+        if existing and not replace_existing:
+            raise RuntimeError(
+                f"dbo.PrayerTimes already contains {existing} rows. "
+                "Import cancelled to avoid duplicates. Use replace_existing=True "
+                "only if you intend to replace all existing prayer-time records."
+            )
+
+        if replace_existing:
+            cursor.execute("DELETE FROM dbo.PrayerTimes")
+
+        cursor.executemany(
+            """
+            INSERT INTO dbo.PrayerTimes
+                (PrayerDate, Fajr, Sunrise, Dhuhr, Asr, Maghrib, Isha,
+                 DataSource, TimeZone)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        connection.commit()
+        return len(rows)
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        if cursor:
+            cursor.close()
+        connection.close()
+
+
+def get_prayer_times(prayer_date=None):
+    """Return one day's prayer times as HH:MM strings, or None if not found."""
+    if prayer_date is None:
+        prayer_date = datetime.now().date()
+    elif isinstance(prayer_date, datetime):
+        prayer_date = prayer_date.date()
+    elif isinstance(prayer_date, str):
+        prayer_date = date.fromisoformat(prayer_date)
+    elif not isinstance(prayer_date, date):
+        raise TypeError("prayer_date must be a date, datetime, ISO date string, or None")
+
+    connection = get_connection()
+    cursor = None
+    try:
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT Fajr, Sunrise, Dhuhr, Asr, Maghrib, Isha, DataSource, TimeZone
+            FROM dbo.PrayerTimes
+            WHERE PrayerDate = ?
+            """,
+            (prayer_date,),
+        )
+        row = cursor.fetchone()
+        if row is None:
+            return None
+
+        def as_hhmm(value):
+            return value.strftime("%H:%M") if hasattr(value, "strftime") else str(value)[:5]
+
+        return {
+            "Fajr": as_hhmm(row["Fajr"]),
+            "Sunrise": as_hhmm(row["Sunrise"]),
+            "Dhuhr": as_hhmm(row["Dhuhr"]),
+            "Asr": as_hhmm(row["Asr"]),
+            "Maghrib": as_hhmm(row["Maghrib"]),
+            "Isha": as_hhmm(row["Isha"]),
+            "source": row["DataSource"],
+            "timezone": row["TimeZone"],
+        }
+    finally:
+        if cursor:
+            cursor.close()
+        connection.close()
+
+
+# =========================================================
 # Initialize Database
 # =========================================================
 
 def initialize_database():
 
     connection = get_connection()
+
+    # جدول مواقيت الصلاة محلي، ينشأ تلقائيًا ولا يحتاج اتصالًا بالإنترنت.
+    ensure_prayer_times_table(connection)
+    connection.commit()
 
     cursor = connection.cursor()
 

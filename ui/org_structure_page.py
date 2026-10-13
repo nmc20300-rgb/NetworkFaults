@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
 )
 
 from database import get_connection, write_audit_log
+from ui.org_cache import OrgStructureCache
 
 MODULE_NAME = "الهيكل التنظيمي"
 UNNAMED = "(بدون اسم)"
@@ -623,7 +624,7 @@ class OrgUnitDialog(QWizard):
         form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("مثال: فرع وسط البلد")
+        self.name_input.setPlaceholderText("مثال: فرع التنظيم")
         self.name_input.setMinimumHeight(42)
         self.name_input.setClearButtonEnabled(True)
         self.name_error = QLabel()
@@ -1423,6 +1424,8 @@ class OrgStructurePage(QWidget):
         except Exception as error:
             QMessageBox.critical(self, "خطأ", f"{failure_text}\n{error}")
             return
+        # أبطل الكاش المركزي وأشعر كل الشاشات الأخرى بالتغيير
+        OrgStructureCache.instance().invalidate()
         self.reload()
         if focus_id in self._items or focus_id in self._index.by_id:
             self._navigate_to_unit(focus_id)

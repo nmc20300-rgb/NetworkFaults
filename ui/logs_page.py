@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QHeaderView,
     QComboBox,
+    QCheckBox,
     QLineEdit,
     QMessageBox,
     QDialog,
@@ -716,6 +717,24 @@ class LogsPage(QWidget):
             #detailsCloseButton:hover {
                 background: #0e7490;
             }
+
+            #changesFilterFrame {
+                background: white;
+                border: 1px solid #e2e8f0;
+                border-radius: 10px;
+            }
+
+            #changesBadge {
+                color: #0369a1;
+                font-size: 13px;
+                font-weight: 700;
+            }
+
+            #changesCheckBox {
+                color: #0f2338;
+                font-size: 13px;
+                font-weight: 700;
+            }
             """
         )
 
@@ -1197,6 +1216,60 @@ class LogsPage(QWidget):
         }
 
     # =========================================================
+    # Value Comparison & Normalization
+    # =========================================================
+
+    @staticmethod
+    def _to_comparable(val):
+        if val is None:
+            return ""
+        if hasattr(val, "strftime"):
+            try:
+                return val.strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                pass
+        if isinstance(val, bool):
+            return val
+        if isinstance(val, (int, float)):
+            if isinstance(val, float) and val.is_integer():
+                return int(val)
+            return val
+        if isinstance(val, str):
+            s = val.strip()
+            if s in ("None", "null", "NULL", "none"):
+                return ""
+            try:
+                if "." in s:
+                    f = float(s)
+                    if f.is_integer():
+                        return int(f)
+                    return f
+                return int(s)
+            except ValueError:
+                return s
+        return val
+
+    @classmethod
+    def values_are_equal(cls, val1, val2):
+        if val1 == val2:
+            return True
+        if isinstance(val1, dict) and isinstance(val2, dict):
+            if set(val1.keys()) != set(val2.keys()):
+                return False
+            return all(cls.values_are_equal(val1[k], val2[k]) for k in val1)
+        if isinstance(val1, list) and isinstance(val2, list):
+            if len(val1) != len(val2):
+                return False
+            return all(cls.values_are_equal(x, y) for x, y in zip(val1, val2))
+        c1 = cls._to_comparable(val1)
+        c2 = cls._to_comparable(val2)
+        if c1 == c2:
+            return True
+        s1 = "" if c1 is None else str(c1).strip()
+        s2 = "" if c2 is None else str(c2).strip()
+        return s1 == s2
+
+    # =========================================================
     # Format Key Names
     # =========================================================
 
@@ -1206,9 +1279,7 @@ class LogsPage(QWidget):
     ):
 
         names = {
-
             "id": "رقم السجل",
-
             "name": "اسم الوحدة",
             "unit_type": "نوع الوحدة",
             "parent_id": "رقم الوحدة الأعلى",
@@ -1216,7 +1287,6 @@ class LogsPage(QWidget):
             "file_name": "اسم الملف",
             "record_count": "عدد السجلات",
             "deleted": "تم الحذف",
-
             "device_number": "رقم الجهاز",
             "device_name": "اسم الجهاز",
             "device_type": "نوع الجهاز",
@@ -1224,44 +1294,53 @@ class LogsPage(QWidget):
             "building": "المبنى",
             "building_id": "رقم المبنى",
             "building_name": "اسم المبنى",
-
             "user_name": "اسم المستخدم",
             "username": "اسم المستخدم",
-
             "received_by": "اسم المستلم",
             "recipient_name": "اسم المستلم",
-
             "specifications": "المواصفات",
             "device_specifications": "مواصفات الجهاز",
-
             "fault_description": "وصف العطل",
             "repair_action": "إجراءات الإصلاح",
             "repair_description": "إجراءات الإصلاح",
-
             "technician": "القائم بالإصلاح",
             "repairer": "القائم بالإصلاح",
-
             "status": "الحالة",
             "is_archived": "مؤرشف",
-
             "ip_address": "عنوان IP",
             "computer_name": "اسم الكمبيوتر",
-
             "part_name": "اسم الصنف",
             "part_number": "رقم الصنف",
             "quantity": "الكمية",
             "unit": "الوحدة",
-
             "old_password": "كلمة المرور القديمة",
             "new_password": "كلمة المرور الجديدة",
-
             "role_code": "الدور",
             "role_name": "اسم الدور",
-
             "is_active": "الحالة",
-
             "created_at": "تاريخ الإنشاء",
             "updated_at": "آخر تعديل",
+            "notes": "الملاحظات",
+            "fault_number": "رقم العطل",
+            "device_id": "رقم الجهاز",
+            "full_name": "الاسم بالكامل",
+            "email": "البريد الإلكتروني",
+            "department": "القسم",
+            "floor": "الدور",
+            "room": "الغرفة",
+            "cost": "التكلفة",
+            "price": "السعر",
+            "date": "التاريخ",
+            "printer_type": "نوع الطابعة",
+            "color": "اللون",
+            "model": "الموديل",
+            "supplier": "المورد",
+            "brand": "الماركة",
+            "location": "الموقع",
+            "action_date": "تاريخ الإجراء",
+            "movement_type": "نوع الحركة",
+            "spare_part_id": "رقم قطعة الغيار",
+            "linked_spare_part_movement": "حركة قطعة الغيار المرتبطة",
         }
 
         return names.get(
@@ -1285,22 +1364,66 @@ class LogsPage(QWidget):
             value,
             bool
         ):
-
             return (
                 "نعم"
                 if value
                 else "لا"
             )
 
+        if isinstance(value, dict):
+            items = []
+            for k, v in value.items():
+                items.append(f"{self.friendly_key(k)}: {self.friendly_value(v)}")
+            return "\n".join(items)
+
+        if isinstance(value, list):
+            return ", ".join(self.friendly_value(v) for v in value)
+
         return str(value)
 
     # =========================================================
-    # Create Professional Values Table
+    # Create & Populate Professional Values Table
     # =========================================================
+
+    def populate_values_table(
+        self,
+        table,
+        values,
+        empty_message="لا توجد بيانات"
+    ):
+        table.setRowCount(0)
+
+        if not values:
+            table.setRowCount(1)
+            empty_key = QTableWidgetItem("—")
+            empty_value = QTableWidgetItem(empty_message)
+            empty_key.setTextAlignment(Qt.AlignCenter)
+            empty_value.setTextAlignment(Qt.AlignCenter)
+            table.setItem(0, 0, empty_key)
+            table.setItem(0, 1, empty_value)
+            return
+
+        table.setRowCount(len(values))
+
+        for row_index, (key, value) in enumerate(values.items()):
+            key_item = QTableWidgetItem(self.friendly_key(key))
+            value_item = QTableWidgetItem(self.friendly_value(value))
+
+            key_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            value_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+            key_item.setToolTip(str(key))
+            value_item.setToolTip(str(value) if value is not None else "")
+
+            table.setItem(row_index, 0, key_item)
+            table.setItem(row_index, 1, value_item)
+
+        table.resizeRowsToContents()
 
     def create_values_table(
         self,
-        values
+        values=None,
+        empty_message="لا توجد بيانات"
     ):
 
         table = QTableWidget()
@@ -1347,90 +1470,11 @@ class LogsPage(QWidget):
             True
         )
 
-        if not values:
-
-            table.setRowCount(1)
-
-            empty_key = QTableWidgetItem(
-                "—"
-            )
-
-            empty_value = QTableWidgetItem(
-                "لا توجد بيانات"
-            )
-
-            empty_key.setTextAlignment(
-                Qt.AlignCenter
-            )
-
-            empty_value.setTextAlignment(
-                Qt.AlignCenter
-            )
-
-            table.setItem(
-                0,
-                0,
-                empty_key
-            )
-
-            table.setItem(
-                0,
-                1,
-                empty_value
-            )
-
-            return table
-
-        table.setRowCount(
-            len(values)
+        self.populate_values_table(
+            table,
+            values,
+            empty_message=empty_message
         )
-
-        for row_index, (
-            key,
-            value
-        ) in enumerate(
-            values.items()
-        ):
-
-            key_item = QTableWidgetItem(
-                self.friendly_key(
-                    key
-                )
-            )
-
-            value_item = QTableWidgetItem(
-                self.friendly_value(
-                    value
-                )
-            )
-
-            key_item.setTextAlignment(
-                Qt.AlignRight
-                | Qt.AlignVCenter
-            )
-
-            value_item.setTextAlignment(
-                Qt.AlignRight
-                | Qt.AlignVCenter
-            )
-
-            key_item.setToolTip(
-                str(key)
-            )
-
-            table.setItem(
-                row_index,
-                0,
-                key_item
-            )
-
-            table.setItem(
-                row_index,
-                1,
-                value_item
-            )
-
-        table.resizeRowsToContents()
 
         return table
 
@@ -1460,30 +1504,28 @@ class LogsPage(QWidget):
 
             return
 
-        old_values = (
+        raw_old = (
             self.parse_audit_values(
                 row["old_values"]
             )
         )
 
-        new_values = (
+        raw_new = (
             self.parse_audit_values(
                 row["new_values"]
             )
         )
 
-        # Use one shared field order so old and new values line up row by row.
-        value_keys = list(dict.fromkeys(
-            list(old_values.keys()) + list(new_values.keys())
+        is_comparing = bool(raw_old and raw_new)
+
+        all_keys = list(dict.fromkeys(
+            list(raw_old.keys()) + list(raw_new.keys())
         ))
-        old_values = {
-            key: old_values.get(key, "—")
-            for key in value_keys
-        }
-        new_values = {
-            key: new_values.get(key, "—")
-            for key in value_keys
-        }
+
+        changed_keys = [
+            k for k in all_keys
+            if not self.values_are_equal(raw_old.get(k), raw_new.get(k))
+        ] if is_comparing else []
 
         dialog = QDialog(self)
 
@@ -1603,11 +1645,93 @@ class LogsPage(QWidget):
         )
 
         # =====================================================
+        # Changes Filter Banner (Only when comparing old & new)
+        # =====================================================
+
+        old_title = QLabel("القيم القديمة")
+        old_title.setObjectName("oldValuesTitle")
+
+        new_title = QLabel("القيم الجديدة")
+        new_title.setObjectName("newValuesTitle")
+
+        old_table = self.create_values_table()
+        new_table = self.create_values_table()
+
+        def update_tables(only_changes=True):
+            if is_comparing:
+                target_keys = changed_keys if only_changes else all_keys
+                if target_keys:
+                    old_data = {k: raw_old.get(k, "—") for k in target_keys}
+                    new_data = {k: raw_new.get(k, "—") for k in target_keys}
+                    old_empty = "لا توجد تعديلات"
+                    new_empty = "لا توجد تعديلات"
+                else:
+                    old_data = {}
+                    new_data = {}
+                    old_empty = "لا توجد حقول تم تغييرها"
+                    new_empty = "لا توجد حقول تم تغييرها"
+
+                count = len(target_keys)
+                if only_changes:
+                    old_title.setText(f"القيم القديمة ({count} حقول معدلة)")
+                    new_title.setText(f"القيم الجديدة ({count} حقول معدلة)")
+                else:
+                    old_title.setText(f"القيم القديمة (كل البيانات: {count})")
+                    new_title.setText(f"القيم الجديدة (كل البيانات: {count})")
+            else:
+                if raw_old and not raw_new:
+                    old_data = raw_old
+                    new_data = {}
+                    old_empty = "لا توجد بيانات"
+                    new_empty = "لا توجد بيانات جديدة (تم الحذف)"
+                elif raw_new and not raw_old:
+                    old_data = {}
+                    new_data = raw_new
+                    old_empty = "لا توجد بيانات سابقة (إضافة جديدة)"
+                    new_empty = "لا توجد بيانات"
+                else:
+                    old_data = {}
+                    new_data = {}
+                    old_empty = "لا توجد بيانات سابقة"
+                    new_empty = "لا توجد بيانات جديدة"
+
+                old_title.setText("القيم القديمة")
+                new_title.setText("القيم الجديدة")
+
+            self.populate_values_table(old_table, old_data, empty_message=old_empty)
+            self.populate_values_table(new_table, new_data, empty_message=new_empty)
+
+        if is_comparing:
+            changes_frame = QFrame()
+            changes_frame.setObjectName("changesFilterFrame")
+            changes_layout = QHBoxLayout(changes_frame)
+            changes_layout.setContentsMargins(14, 8, 14, 8)
+
+            badge_text = (
+                f"تم رصد {len(changed_keys)} حقل/حقول تم تعديلها فقط"
+                if changed_keys
+                else "لم يتم رصد أي اختلاف بين القيم القديمة والجديدة"
+            )
+            badge_label = QLabel(badge_text)
+            badge_label.setObjectName("changesBadge")
+            changes_layout.addWidget(badge_label)
+
+            changes_layout.addStretch()
+
+            only_changes_cb = QCheckBox("عرض الحقول المعدلة فقط")
+            only_changes_cb.setObjectName("changesCheckBox")
+            only_changes_cb.setCursor(Qt.PointingHandCursor)
+            only_changes_cb.setChecked(True)
+            only_changes_cb.toggled.connect(update_tables)
+            changes_layout.addWidget(only_changes_cb)
+
+            root.addWidget(changes_frame)
+
+        # =====================================================
         # Old / New Tables
         # =====================================================
 
         values_layout = QHBoxLayout()
-
         values_layout.setSpacing(14)
 
         # -----------------------------------------------------
@@ -1615,99 +1739,31 @@ class LogsPage(QWidget):
         # -----------------------------------------------------
 
         old_frame = QFrame()
+        old_frame.setObjectName("oldValuesFrame")
+        old_layout = QVBoxLayout(old_frame)
+        old_layout.setContentsMargins(12, 12, 12, 12)
+        old_layout.addWidget(old_title)
+        old_layout.addWidget(old_table, 1)
 
-        old_frame.setObjectName(
-            "oldValuesFrame"
-        )
-
-        old_layout = QVBoxLayout(
-            old_frame
-        )
-
-        old_layout.setContentsMargins(
-            12,
-            12,
-            12,
-            12
-        )
-
-        old_title = QLabel(
-            "القيم القديمة"
-        )
-
-        old_title.setObjectName(
-            "oldValuesTitle"
-        )
-
-        old_layout.addWidget(
-            old_title
-        )
-
-        old_table = self.create_values_table(
-            old_values
-        )
-
-        old_layout.addWidget(
-            old_table,
-            1
-        )
-
-        values_layout.addWidget(
-            old_frame,
-            1
-        )
+        values_layout.addWidget(old_frame, 1)
 
         # -----------------------------------------------------
         # New Values
         # -----------------------------------------------------
 
         new_frame = QFrame()
+        new_frame.setObjectName("newValuesFrame")
+        new_layout = QVBoxLayout(new_frame)
+        new_layout.setContentsMargins(12, 12, 12, 12)
+        new_layout.addWidget(new_title)
+        new_layout.addWidget(new_table, 1)
 
-        new_frame.setObjectName(
-            "newValuesFrame"
-        )
+        values_layout.addWidget(new_frame, 1)
 
-        new_layout = QVBoxLayout(
-            new_frame
-        )
+        root.addLayout(values_layout, 1)
 
-        new_layout.setContentsMargins(
-            12,
-            12,
-            12,
-            12
-        )
-
-        new_title = QLabel(
-            "القيم الجديدة"
-        )
-
-        new_title.setObjectName(
-            "newValuesTitle"
-        )
-
-        new_layout.addWidget(
-            new_title
-        )
-
-        new_table = self.create_values_table(
-            new_values
-        )
-
-        new_layout.addWidget(
-            new_table,
-            1
-        )
-
-        values_layout.addWidget(
-            new_frame,
-            1
-        )
-
-        root.addLayout(
-            values_layout,
-            1
-        )
+        # Load initial filtered data (only changes by default)
+        update_tables(only_changes=True)
 
         # =====================================================
         # Close

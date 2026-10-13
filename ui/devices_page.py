@@ -105,6 +105,170 @@ QWidget {
     background: #fee2e2;
 }
 
+#devicesAddBtn {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0891b2, stop:1 #06b6d4);
+    color: white;
+    border: none;
+    border-radius: 9px;
+    padding: 0 16px;
+    min-height: 38px;
+    max-height: 38px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+#devicesAddBtn:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0e7490, stop:1 #0891b2);
+}
+
+#devicesAddBtn:pressed {
+    background: #155e75;
+}
+
+#devicesImportBtn {
+    background: #ecfeff;
+    color: #0e7490;
+    border: 1px solid #a5f3fc;
+    border-radius: 9px;
+    padding: 0 15px;
+    min-height: 38px;
+    max-height: 38px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+#devicesImportBtn:hover {
+    background: #cffafe;
+    border-color: #67e8f9;
+    color: #0891b2;
+}
+
+#devicesImportBtn:pressed {
+    background: #a5f3fc;
+}
+
+#devicesMoreBtn {
+    background: white;
+    color: #475569;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    padding: 0 14px;
+    min-height: 38px;
+    max-height: 38px;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+#devicesMoreBtn:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    color: #0f172a;
+}
+
+#devicesMoreBtn:pressed {
+    background: #e2e8f0;
+}
+
+#selectionBar {
+    background: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 9px;
+}
+
+#selectionBadge {
+    color: #166534;
+    font-weight: 800;
+    font-size: 12px;
+    padding: 0 4px;
+}
+
+#devicesEditBtn {
+    background: white;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+    border-radius: 7px;
+    padding: 0 13px;
+    min-height: 30px;
+    max-height: 30px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+#devicesEditBtn:hover {
+    background: #f8fafc;
+    border-color: #94a3b8;
+    color: #0f172a;
+}
+
+#devicesEditBtn:pressed {
+    background: #e2e8f0;
+}
+
+#devicesDeleteBtn {
+    background: #fff1f2;
+    color: #e11d48;
+    border: 1px solid #fecdd3;
+    border-radius: 7px;
+    padding: 0 13px;
+    min-height: 30px;
+    max-height: 30px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+#devicesDeleteBtn:hover {
+    background: #ffe4e6;
+    border-color: #fda4af;
+    color: #be123c;
+}
+
+#devicesDeleteBtn:pressed {
+    background: #fecdd3;
+}
+
+#selectionDeselectBtn {
+    background: transparent;
+    color: #64748b;
+    border: none;
+    border-radius: 6px;
+    padding: 2px 8px;
+    min-height: 30px;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+#selectionDeselectBtn:hover {
+    background: #dcfce7;
+    color: #15803d;
+}
+
+QMenu {
+    background: white;
+    border: 1px solid #cbd5e1;
+    border-radius: 9px;
+    padding: 5px;
+    font-size: 12px;
+}
+
+QMenu::item {
+    padding: 7px 20px;
+    border-radius: 6px;
+    color: #334155;
+    font-weight: 600;
+}
+
+QMenu::item:selected {
+    background: #f1f5f9;
+    color: #0f2338;
+}
+
+QMenu::separator {
+    height: 1px;
+    background: #e2e8f0;
+    margin: 4px 6px;
+}
+
+
 #search {
     background: #f8fafc;
     border: 1px solid #cbd5e1;
@@ -847,25 +1011,14 @@ class DevicesPage(QWidget):
             "devices.delete"
         )
 
-        self.import_button.setVisible(
-            can_add
-        )
+        if hasattr(self, "import_button"):
+            self.import_button.setVisible(can_add)
 
-        self.add_button.setVisible(
-            can_add
-        )
+        if hasattr(self, "add_button"):
+            self.add_button.setVisible(can_add)
 
-        self.edit_button.setVisible(
-            can_edit
-        )
-
-        self.device_delete_button.setVisible(
-            can_delete
-        )
-
-        self.clear_all_button.setVisible(
-            can_delete
-        )
+        if hasattr(self, "act_clear_all"):
+            self.act_clear_all.setVisible(can_delete)
 
     # ========================================================
     # UI
@@ -899,6 +1052,8 @@ class DevicesPage(QWidget):
         # ----------------------------------------------------
 
         head = QHBoxLayout()
+        head.setSpacing(8)
+        head.setAlignment(Qt.AlignVCenter)
 
         titles = QVBoxLayout()
 
@@ -933,118 +1088,84 @@ class DevicesPage(QWidget):
         head.addStretch()
 
         # ----------------------------------------------------
-        # Buttons
+        # Action Buttons Toolbar
         # ----------------------------------------------------
 
-        self.import_button = QPushButton(
-            "📥  استيراد Excel"
-        )
-
-        self.import_button.setObjectName(
-            "primary"
-        )
-
-        self.import_button.clicked.connect(
-            self.import_excel
-        )
-
-        self.add_button = QPushButton(
-            "＋  إضافة جهاز"
-        )
-
-        self.add_button.setObjectName(
-            "primary"
-        )
-
-        self.add_button.clicked.connect(
-            self.add_device
-        )
-
-        self.edit_button = QPushButton(
-            "✎  تعديل"
-        )
-
-        self.edit_button.setObjectName(
-            "secondary"
-        )
-
-        self.edit_button.clicked.connect(
-            self.edit_device
-        )
-
-        self.device_delete_button = QPushButton(
-            "🗑  حذف"
-        )
-
-        self.device_delete_button.setObjectName(
-            "danger"
-        )
-
-        self.device_delete_button.clicked.connect(
-            self.delete_device
-        )
-
-        self.select_all_button = QPushButton(
-            "☑  تحديد الكل"
-        )
-
-        self.select_all_button.setObjectName(
-            "secondary"
-        )
-
-        self.select_all_button.clicked.connect(
-            self.toggle_select_all
-        )
-
-        self.clear_all_button = QPushButton(
-            "🗑  مسح الكل"
-        )
-
-        self.clear_all_button.setObjectName(
-            "danger"
-        )
-
-        self.clear_all_button.clicked.connect(
-            self.clear_all_devices
-        )
+        # Contextual Selection Bar (Appears ONLY when rows are selected)
+        self.selection_bar = QFrame()
+        self.selection_bar.setObjectName("selectionBar")
+        sel_layout = QHBoxLayout(self.selection_bar)
+        sel_layout.setContentsMargins(8, 2, 8, 2)
+        sel_layout.setSpacing(6)
 
         self.device_selection_label = QLabel("")
+        self.device_selection_label.setObjectName("selectionBadge")
+        sel_layout.addWidget(self.device_selection_label)
 
-        self.device_selection_label.setStyleSheet(
-            "color: #0891b2; font-weight: 700;"
-            " padding: 4px 8px;"
-            " background: #e0f2fe;"
-            " border-radius: 6px;"
-        )
+        self.edit_button = QPushButton("  تعديل")
+        self.edit_button.setObjectName("devicesEditBtn")
+        self.edit_button.setCursor(Qt.PointingHandCursor)
+        self.edit_button.setToolTip("تعديل بيانات الجهاز المحدد")
+        self.edit_button.clicked.connect(self.edit_device)
+        sel_layout.addWidget(self.edit_button)
 
-        self.device_selection_label.setVisible(False)
+        self.device_delete_button = QPushButton("  حذف")
+        self.device_delete_button.setObjectName("devicesDeleteBtn")
+        self.device_delete_button.setCursor(Qt.PointingHandCursor)
+        self.device_delete_button.setToolTip("حذف الجهاز أو الأجهزة المحددة")
+        self.device_delete_button.clicked.connect(self.delete_device)
+        sel_layout.addWidget(self.device_delete_button)
 
-        head.addWidget(
-            self.import_button
+        self.deselect_button = QPushButton("✕  إلغاء")
+        self.deselect_button.setObjectName("selectionDeselectBtn")
+        self.deselect_button.setCursor(Qt.PointingHandCursor)
+        self.deselect_button.setToolTip("إلغاء التحديد")
+        self.deselect_button.clicked.connect(
+            lambda: self.table.clearSelection() if hasattr(self, "table") else None
         )
+        sel_layout.addWidget(self.deselect_button)
 
-        head.addWidget(
-            self.add_button
-        )
+        self.selection_bar.setVisible(False)
+        head.addWidget(self.selection_bar)
 
-        head.addWidget(
-            self.edit_button
-        )
-        head.addWidget(
-            self.device_delete_button
-        )
+        # 1. Primary Action: إضافة جهاز
+        self.add_button = QPushButton("  إضافة جهاز")
+        self.add_button.setObjectName("devicesAddBtn")
+        self.add_button.setCursor(Qt.PointingHandCursor)
+        self.add_button.setToolTip("إضافة جهاز كمبيوتر أو ملحق جديد")
+        self.add_button.clicked.connect(self.add_device)
+        head.addWidget(self.add_button)
 
-        head.addWidget(
-            self.select_all_button
-        )
+        # 2. Companion Action: استيراد Excel
+        self.import_button = QPushButton("  استيراد Excel")
+        self.import_button.setObjectName("devicesImportBtn")
+        self.import_button.setCursor(Qt.PointingHandCursor)
+        self.import_button.setToolTip("استيراد بيانات الأجهزة دفعة واحدة من ملف Excel")
+        self.import_button.clicked.connect(self.import_excel)
+        head.addWidget(self.import_button)
 
-        head.addWidget(
-            self.clear_all_button
-        )
+        # 3. More Options Menu: خيارات ▾ (تحديد الكل، مسح الكل)
+        self.more_button = QPushButton("خيارات ▾")
+        self.more_button.setObjectName("devicesMoreBtn")
+        self.more_button.setCursor(Qt.PointingHandCursor)
+        self.more_button.setToolTip("خيارات إضافية للجدول والبيانات")
 
-        head.addWidget(
-            self.device_selection_label
-        )
+        more_menu = QMenu(self.more_button)
+        self.act_select_all = more_menu.addAction("  تحديد الكل")
+        self.act_select_all.triggered.connect(self.toggle_select_all)
+
+        more_menu.addSeparator()
+
+        self.act_clear_all = more_menu.addAction("  مسح جميع الأجهزة...")
+        self.act_clear_all.triggered.connect(self.clear_all_devices)
+
+        self.more_button.setMenu(more_menu)
+        head.addWidget(self.more_button)
+
+        # Backward compatibility references
+        self.select_all_button = self.more_button
+        self.clear_all_button = QPushButton()
+        self.clear_all_button.setVisible(False)
 
         root.addLayout(
             head
@@ -2335,24 +2456,27 @@ class DevicesPage(QWidget):
         )
         total_rows = self.table.rowCount()
 
-        if hasattr(self, "select_all_button"):
+        if hasattr(self, "act_select_all"):
             if total_rows > 0 and selected_rows >= total_rows:
-                self.select_all_button.setText("☐  إلغاء التحديد")
+                self.act_select_all.setText("  إلغاء التحديد")
             else:
-                self.select_all_button.setText("☑  تحديد الكل")
+                self.act_select_all.setText("  تحديد الكل")
 
-        if selected_rows > 0:
-            self.device_selection_label.setText(
-                f"✔ {selected_rows} محدد"
-            )
-            self.device_selection_label.setVisible(True)
-            if selected_rows > 1:
-                self.device_delete_button.setText(f"🗑  حذف ({selected_rows})")
+        can_edit = self.has_permission("devices.edit")
+        can_delete = self.has_permission("devices.delete")
+
+        if hasattr(self, "selection_bar"):
+            if selected_rows > 0:
+                self.selection_bar.setVisible(True)
+                self.device_selection_label.setText(f"✔  {selected_rows} محدد")
+                self.edit_button.setVisible(selected_rows == 1 and can_edit)
+                self.device_delete_button.setVisible(can_delete)
+                if selected_rows > 1:
+                    self.device_delete_button.setText(f"🗑  حذف ({selected_rows})")
+                else:
+                    self.device_delete_button.setText("🗑  حذف")
             else:
-                self.device_delete_button.setText("🗑  حذف")
-        else:
-            self.device_selection_label.setVisible(False)
-            self.device_delete_button.setText("🗑  حذف")
+                self.selection_bar.setVisible(False)
 
     def _show_context_menu(self, pos):
         """قائمة كليك يمين أنيقة للجدول بدون زحمة أزرار في الواجهة."""
