@@ -55,6 +55,7 @@ ALIGN_RIGHT = Qt.AlignRight | Qt.AlignAbsolute | Qt.AlignVCenter
 # ملف الصوت: <فولدر المشروع>\assets\ac_alert.wav (لازم WAV)
 SOUND_FILE = Path(__file__).resolve().parent.parent / "assets" / "ac_alert.wav"
 REPEAT_MINUTES = 10  # تكرار الصوت كل كام دقيقة طول ما التبديل متأخر
+PLAY_COUNT = 3       # كل تنبيه بيتشغّل كام مرة ورا بعض (متواصل)
 
 
 class AcSound:
@@ -66,12 +67,15 @@ class AcSound:
             self._effect = QSoundEffect(parent)
             self._effect.setSource(QUrl.fromLocalFile(str(SOUND_FILE)))
             self._effect.setVolume(0.8)
+            self._effect.setLoopCount(PLAY_COUNT)  # تكرار متواصل بدون فاصل
 
     def play(self):
         if self._effect is not None:
             self._effect.play()
         else:
-            QApplication.beep()
+            # بديل لو ملف الصوت مش موجود: beep بنفس عدد المرات
+            for index in range(PLAY_COUNT):
+                QTimer.singleShot(index * 1000, QApplication.beep)
 
 DIALOG_STYLE = """
     QDialog { background: #f6f8fb; }
