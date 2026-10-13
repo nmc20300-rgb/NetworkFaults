@@ -7,29 +7,41 @@
   - كل 30 ثانية: قراءة قاعدة البيانات (لو الصفحة ظاهرة).
 """
 from datetime import datetime, timedelta
+from pathlib import Path
 
-from PySide6.QtCore import QEasingCurve, QRectF, Qt, QTimer, QVariantAnimation
+from PySide6.QtCore import (
+    QEasingCurve,
+    QRectF,
+    QSettings,
+    Qt,
+    QTimer,
+    QUrl,
+    QVariantAnimation,
+)
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPen
 from PySide6.QtWidgets import (
-    QComboBox,
+    QApplication,
     QDialog,
     QFrame,
     QHBoxLayout,
-    QHeaderView,
     QLabel,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
     QSizePolicy,
-    QTableWidget,
-    QTableWidgetItem,
     QVBoxLayout,
 )
+
+try:
+    from PySide6.QtMultimedia import QSoundEffect
+except ImportError:  # الحزمة مش متسطبة: نرجع للـ beep العادي
+    QSoundEffect = None
 
 from database import get_connection
 
 from . import ac_repository as repo
 from . import ac_schedule as sched
+from .ac_history import AcHistoryDialog
 
 LEVEL_COLORS = {
     sched.LEVEL_NORMAL: "#22a06b",   # هادي: قبل التنبيه
@@ -39,6 +51,27 @@ LEVEL_COLORS = {
     "error": "#94a3b8",
 }
 ALIGN_RIGHT = Qt.AlignRight | Qt.AlignAbsolute | Qt.AlignVCenter
+
+# ملف الصوت: <فولدر المشروع>\assets\ac_alert.wav (لازم WAV)
+SOUND_FILE = Path(__file__).resolve().parent.parent / "assets" / "ac_alert.wav"
+REPEAT_MINUTES = 10  # تكرار الصوت كل كام دقيقة طول ما التبديل متأخر
+
+
+class AcSound:
+    """تشغيل صوت التنبيه (WAV) أو beep النظام لو الملف/الحزمة مش موجودين."""
+
+    def __init__(self, parent):
+        self._effect = None
+        if QSoundEffect is not None and SOUND_FILE.exists():
+            self._effect = QSoundEffect(parent)
+            self._effect.setSource(QUrl.fromLocalFile(str(SOUND_FILE)))
+            self._effect.setVolume(0.8)
+
+    def play(self):
+        if self._effect is not None:
+            self._effect.play()
+        else:
+            QApplication.beep()
 
 DIALOG_STYLE = """
     QDialog { background: #f6f8fb; }
@@ -131,130 +164,6 @@ class DelayReasonDialog(QDialog):
 
 
 # =============================================================
-# السجل التاريخي
-# =============================================================
-class AcHistoryDialog(QDialog):
-    COLUMNS = [
-        "الموعد المجدول", "وقت التنفيذ الفعلي", "المستخدم",
-        "الحالة", "التأخير", "سبب التأخير",
-    ]
-    STATUS_COLORS = {
-        sched.HISTORY_ON_TIME: "#15803d",
-        sched.HISTORY_LATE: "#b45309",
-        sched.HISTORY_UNCONFIRMED: "#b91c1c",
-    }
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("سجل تبديل التكييف")
-        self.setLayoutDirection(Qt.RightToLeft)
-        self.resize(940, 560)
-        self.setStyleSheet(DIALOG_STYLE)
-        self._rows = []
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 18, 20, 18)
-        layout.setSpacing(12)
-
-        top = QHBoxLayout()
-        title = QLabel("سجل تبديل التكييف")
-        title.setObjectName("dlgTitle")
-        top.addWidget(title)
-        top.addStretch(1)
-        top.addWidget(QLabel("عرض:"))
-        self.filter_box = QComboBox()
-        self.filter_box.addItem("الكل", None)
-        for key in (sched.HISTORY_ON_TIME, sched.HISTORY_LATE, sched.HISTORY_UNCONFIRMED):
-            self.filter_box.addItem(sched.HISTORY_LABELS_AR[key], key)
-        self.filter_box.currentIndexChanged.connect(self._populate)
-        top.addWidget(self.filter_box)
-        layout.addLayout(top)
-
-        self.summary = QLabel("")
-        self.summary.setObjectName("dlgSummary")
-        self.summary.setWordWrap(True)
-        layout.addWidget(self.summary)
-
-        self.table = QTableWidget()
-        self.table.setColumnCount(len(self.COLUMNS))
-        self.table.setHorizontalHeaderLabels(self.COLUMNS)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.setSelectionMode(QTableWidget.SingleSelection)
-        self.table.setShowGrid(False)
-        self.table.setFocusPolicy(Qt.NoFocus)
-        self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(36)
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(len(self.COLUMNS) - 1, QHeaderView.Stretch)
-        layout.addWidget(self.table, 1)
-
-        close = QPushButton("إغلاق")
-        close.clicked.connect(self.accept)
-        bottom = QHBoxLayout()
-        bottom.addWidget(close)
-        bottom.addStretch(1)
-        layout.addLayout(bottom)
-
-        self._load()
-
-    def _load(self):
-        now = datetime.now()
-        try:
-            conn = get_connection()
-            try:
-                repo.ensure_schema(conn)
-                tracking_start = repo.get_tracking_start(conn, now)
-                start = now - timedelta(days=sched.HISTORY_DAYS)
-                records = repo.fetch_records(conn, start, now)
-            finally:
-                conn.close()
-        except Exception as exc:
-            self.summary.setText(f"تعذر قراءة السجل من قاعدة البيانات: {exc}")
-            return
-
-        self._rows = sched.history_rows(now, records, tracking_start)
-        stats = sched.compliance_summary(self._rows)
-        if stats["total"]:
-            self.summary.setText(
-                f"آخر {sched.HISTORY_DAYS} يومًا: {stats['total']} تبديل  ·  "
-                f"في موعدها {stats['on_time']} ({stats['on_time_percent']}%)  ·  "
-                f"متأخرة {stats['late']}  ·  غير مؤكدة {stats['unconfirmed']}"
-            )
-        else:
-            self.summary.setText("لا توجد مواعيد مسجلة بعد؛ سيبدأ السجل من أول موعد قادم.")
-        self._populate()
-
-    def _populate(self):
-        wanted = self.filter_box.currentData()
-        rows = [r for r in self._rows if wanted is None or r["status_key"] == wanted]
-        now = datetime.now()
-        self.table.setRowCount(len(rows))
-        for index, row in enumerate(rows):
-            delay = f"{row['delay_minutes']} د" if row["delay_minutes"] else "—"
-            values = [
-                sched.format_datetime_ar(row["scheduled"], now),
-                sched.format_datetime_ar(row["confirmed_at"], now),
-                row["confirmed_by"] or "—",
-                row["status_label"],
-                delay,
-                row["delay_reason"] or "—",
-            ]
-            for col, value in enumerate(values):
-                item = QTableWidgetItem(str(value))
-                item.setTextAlignment(Qt.AlignCenter)
-                if col == 3:
-                    item.setForeground(QColor(self.STATUS_COLORS[row["status_key"]]))
-                    font = item.font()
-                    font.setBold(True)
-                    item.setFont(font)
-                elif value == "—":
-                    item.setForeground(QColor("#c0cad4"))
-                self.table.setItem(index, col, item)
-
-
-# =============================================================
 # بطاقة التنبيه (ارتفاع ثابت عشان الداشبورد ما تتحركش)
 # =============================================================
 class AcAlertCard(QFrame):
@@ -276,6 +185,13 @@ class AcAlertCard(QFrame):
         self._level = None
         self._accent = QColor(LEVEL_COLORS[sched.LEVEL_NORMAL])
         self._busy = False
+
+        # صوت التنبيه (حالة الكتم بتتحفظ بين التشغيلات)
+        self._settings = QSettings("NetworkFaults", "AcAlert")
+        self._sound = AcSound(self)
+        self._sound_on = self._settings.value("ac_sound_on", True, type=bool)
+        self._sound_key = None
+        self._sound_at = None
 
         self._fade = QVariantAnimation(self)
         self._fade.setDuration(350)
@@ -369,8 +285,16 @@ class AcAlertCard(QFrame):
         self.history_button.setObjectName("acHistory")
         self.history_button.setCursor(Qt.PointingHandCursor)
         self.history_button.clicked.connect(self._open_history)
+        self.sound_button = QPushButton()
+        self.sound_button.setObjectName("acHistory")
+        self.sound_button.setCheckable(True)
+        self.sound_button.setCursor(Qt.PointingHandCursor)
+        self.sound_button.setChecked(self._sound_on)
+        self.sound_button.setText("الصوت: يعمل" if self._sound_on else "الصوت: متوقف")
+        self.sound_button.toggled.connect(self._toggle_sound)
         buttons.addWidget(self.confirm_button)
         buttons.addWidget(self.history_button)
+        buttons.addWidget(self.sound_button)
         layout.addLayout(buttons)
 
     # ---------------------------------------------------------
@@ -471,6 +395,7 @@ class AcAlertCard(QFrame):
             now, set(self._snapshot.records), self._snapshot.tracking_start
         )
         self._state = state
+        self._maybe_play_sound(state, now)
         self._set_level(state.level)
         self._set_text(self.message_label, state.message)
         self._set_text(self.detail_label, state.detail or self._last_confirmation_text())
@@ -489,11 +414,43 @@ class AcAlertCard(QFrame):
     def _on_tick(self):
         if self.isVisible():
             self._render()
+        elif self._snapshot is not None:
+            # الصفحة مخفية: مفيش رسم، بس الصوت لسه شغّال
+            now = datetime.now()
+            state = sched.build_alert_state(
+                now, set(self._snapshot.records), self._snapshot.tracking_start
+            )
+            self._maybe_play_sound(state, now)
 
     def _on_db_timer(self):
+        # بنقرا القاعدة حتى لو الصفحة مخفية، عشان الصوت ما يرنش على تبديل اتأكد من مستخدم تاني
+        self.reload_from_db()
         if self.isVisible():
-            self.reload_from_db()
             self._render()
+
+    # ---------------------------------------------------------
+    # الصوت
+    # ---------------------------------------------------------
+    def _maybe_play_sound(self, state, now):
+        """صوت واحد: مرة عند حلول الموعد، وبعدها كل REPEAT_MINUTES طول ما التبديل متأخر."""
+        if not self._sound_on or not self._can_confirm:
+            return
+        if state.level != sched.LEVEL_DUE:
+            return
+
+        key = state.primary_slot
+        if key != self._sound_key:
+            self._sound_key = key
+            self._sound_at = now
+            self._sound.play()
+        elif (now - self._sound_at) >= timedelta(minutes=REPEAT_MINUTES):
+            self._sound_at = now
+            self._sound.play()
+
+    def _toggle_sound(self, on):
+        self._sound_on = on
+        self.sound_button.setText("الصوت: يعمل" if on else "الصوت: متوقف")
+        self._settings.setValue("ac_sound_on", on)
 
     def showEvent(self, event):
         super().showEvent(event)
