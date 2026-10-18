@@ -1,5 +1,6 @@
 import os
 import sys
+import traceback
 
 
 from PySide6.QtCore import Qt, Signal
@@ -44,6 +45,7 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.current_user = user or {}
+        self._shutdown_done = False
 
         self.setWindowTitle("الشبكة - نظام إدارة الأجهزة والأعطال")
         self.resize(1400, 850)
@@ -499,30 +501,29 @@ class MainWindow(QMainWindow):
     # =========================================================
 
     def build_pages(self):
-        self.home_page = DashboardPage(self.current_user)
-        self.devices_page = DevicesPage(self.current_user)
-        self.faults_page = FaultsPage(self.current_user)
-        self.spare_parts_page = SparePartsPage()
-        self.users_page = UsersPage(self.current_user)
-        self.permissions_page = PermissionsPage(self.current_user)
-        self.logs_page = LogsPage(self.current_user)
-        self.ink_page = InkPage(self.current_user)
-        self.org_structure_page = OrgStructurePage(self.current_user)
-        self.cameras_page = CamerasPage(self.current_user)
-
+        page_builders = (
+            ("home_page", "DashboardPage", lambda: DashboardPage(self.current_user)),
+            ("devices_page", "DevicesPage", lambda: DevicesPage(self.current_user)),
+            ("faults_page", "FaultsPage", lambda: FaultsPage(self.current_user)),
+            ("spare_parts_page", "SparePartsPage", lambda: SparePartsPage()),
+            ("users_page", "UsersPage", lambda: UsersPage(self.current_user)),
+            ("permissions_page", "PermissionsPage", lambda: PermissionsPage(self.current_user)),
+            ("logs_page", "LogsPage", lambda: LogsPage(self.current_user)),
+            ("ink_page", "InkPage", lambda: InkPage(self.current_user)),
+            ("org_structure_page", "OrgStructurePage", lambda: OrgStructurePage(self.current_user)),
+            ("cameras_page", "CamerasPage", lambda: CamerasPage(self.current_user)),
+        )
+        for attr_name, page_name, builder in page_builders:
+            try:
+                setattr(self, attr_name, builder())
+            except Exception as error:
+                raise RuntimeError(f"فشل إنشاء الصفحة: {page_name}\n{error}") from error
         pages = [
-            self.home_page,
-            self.devices_page,
-            self.faults_page,
-            self.spare_parts_page,
-            self.users_page,
-            self.permissions_page,
-            self.logs_page,
-            self.ink_page,
-            self.org_structure_page,
+            self.home_page, self.devices_page, self.faults_page,
+            self.spare_parts_page, self.users_page, self.permissions_page,
+            self.logs_page, self.ink_page, self.org_structure_page,
             self.cameras_page,
         ]
-
         for page in pages:
             self.pages.addWidget(page)
 
@@ -629,8 +630,23 @@ class MainWindow(QMainWindow):
             self.nav_buttons[index].setChecked(True)
 
     # =========================================================
-    # Logout
+    # Cleanup / Logout
     # =========================================================
+
+    def shutdown(self):
+        """فصل إشارات الصفحات قبل حذف نافذة النظام وأطفالها."""
+        if self._shutdown_done:
+            return
+        self._shutdown_done = True
+        for page_name in ("cameras_page", "org_structure_page"):
+            page = getattr(self, page_name, None)
+            dispose = getattr(page, "dispose", None)
+            if callable(dispose):
+                dispose()
+
+    def closeEvent(self, event):
+        self.shutdown()
+        super().closeEvent(event)
 
     def handle_logout(self):
         reply = QMessageBox.question(
@@ -731,6 +747,7 @@ def main():
                 description="تم تسجيل الخروج",
             )
 
+            current_window.shutdown()
             current_window.close()
             main_window["window"] = None
 
@@ -763,8 +780,11 @@ def main():
 
         except Exception as error:
             login_page._set_loading(False)
+            details = traceback.format_exc()
+            print(details, file=sys.stderr)
             login_page.show_error(
-                f"تعذر فتح النظام بعد تسجيل الدخول:\n{error}"
+                f"تعذر فتح النظام بعد تسجيل الدخول:\n{error}\n\n"
+                f"التفاصيل:\n{chr(10).join(details.splitlines()[-8:])}"
             )
 
     login_page.login_successful.connect(open_main)

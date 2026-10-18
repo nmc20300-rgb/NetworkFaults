@@ -4,7 +4,7 @@
   - لوحة مؤشرات تفاعلية (KPI Metric Deck) مع إمكانية التصفية المباشرة بالنقر.
   - تبويب مخصص لإدارة السويتشات والبنية الشبكية (Network Switches & Topology) مع إحصائيات المنافذ.
   - ربط كامل بين الكاميرات والسويتشات المغذية لها وتحديد أرقام المنافذ (Switch Ports).
-  - محول العرض المزدوج: [شجرة المواقع والهيكل 🗂] و [الجدول الشامل 📋].
+  - عرض جدولي شامل وموحد لجميع الكاميرات مع البحث والفلاتر والإجراءات.
   - مركز التنبيهات الذكي (Smart Alert Center) مع تصنيف الخطورة والفرز حسب الفئة.
   - لوحة تحليلات وتقارير جاهزية (Executive Analytics, MTTR, Uptime %, Top Failing Cameras).
   - نوافذ إدخال وتعديل مقسمة بطاقات منظمة ومراجعة تاريخية فاخرة (Hero Banner & Spec Sheet).
@@ -17,6 +17,7 @@ from pathlib import Path
 import tempfile
 import webbrowser
 
+from shiboken6 import isValid as qt_is_valid
 from PySide6.QtCore import Qt, QDate, QTimer, QSize
 from PySide6.QtGui import QColor, QFont, QCursor
 from PySide6.QtWidgets import (
@@ -44,9 +45,6 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QMenu,
     QScrollArea,
-    QTreeWidget,
-    QTreeWidgetItem,
-    QStackedWidget,
     QProgressBar,
     QListWidget,
     QListWidgetItem,
@@ -332,14 +330,14 @@ QTabWidget#mainTabs > QTabBar::tab:hover:!selected {
     color: #0f2338;
 }
 
-/* ── الجداول والشجرة ── */
+/* ── الجداول ── */
 #proTableCard {
     background-color: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 12px;
 }
 
-QTableWidget, QTreeWidget {
+QTableWidget {
     background-color: #ffffff;
     border: none;
     gridline-color: #f1f5f9;
@@ -2108,7 +2106,9 @@ class CamerasPage(QWidget):
         self.setup_ui()
         self.apply_permissions()
 
-        OrgStructureCache.instance().data_changed.connect(self.load_building_filter)
+        self._org_cache = OrgStructureCache.instance()
+        self._org_cache.data_changed.connect(self.load_building_filter)
+        self._org_cache_connection_active = True
 
         if not ok:
             QMessageBox.warning(
@@ -2128,6 +2128,16 @@ class CamerasPage(QWidget):
 
         self.load_building_filter()
         self.refresh_all()
+
+    def dispose(self):
+        """فصل إشارة الكاش قبل حذف الصفحة لتجنب استدعاء عناصر Qt المحذوفة."""
+        if not getattr(self, "_org_cache_connection_active", False):
+            return
+        try:
+            self._org_cache.data_changed.disconnect(self.load_building_filter)
+        except (RuntimeError, TypeError):
+            pass
+        self._org_cache_connection_active = False
 
     # =========================================================
     # الصلاحيات
@@ -2318,7 +2328,7 @@ class CamerasPage(QWidget):
         self.tabs.setCurrentIndex(3)
 
     # =========================================================
-    # التبويب الأول: الكاميرات (مع خياري شجرة / جدول شامل)
+    # التبويب الأول: الكاميرات (الجدول الشامل)
     # =========================================================
 
     def _build_cameras_tab(self):
@@ -2363,87 +2373,12 @@ class CamerasPage(QWidget):
         self.show_archived.toggled.connect(self.load_cameras)
         b_layout.addWidget(self.show_archived)
 
-        # محوّل طريقة العرض
-        self.view_stack = QStackedWidget()
-
-        self.btn_view_tree = QPushButton("🗂 شجرة المواقع")
-        self.btn_view_tree.setCheckable(True)
-        self.btn_view_tree.setChecked(True)
-        self.btn_view_tree.setCursor(Qt.PointingHandCursor)
-        self.btn_view_tree.setStyleSheet("""
-            QPushButton {
-                background: #0891b2; color: #fff; border: 1px solid #0891b2;
-                border-radius: 7px; padding: 6px 12px; font-weight: 700;
-            }
-        """)
-
-        self.btn_view_table = QPushButton("📋 جدول شامل")
-        self.btn_view_table.setCheckable(True)
-        self.btn_view_table.setChecked(False)
-        self.btn_view_table.setCursor(Qt.PointingHandCursor)
-        self.btn_view_table.setStyleSheet("""
-            QPushButton {
-                background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1;
-                border-radius: 7px; padding: 6px 12px; font-weight: 700;
-            }
-        """)
-
-        self.btn_view_tree.clicked.connect(lambda: self._set_cameras_view(0))
-        self.btn_view_table.clicked.connect(lambda: self._set_cameras_view(1))
-
-        b_layout.addWidget(self.btn_view_tree)
-        b_layout.addWidget(self.btn_view_table)
-
-        self.tree_actions_box = QWidget()
-        t_box = QHBoxLayout(self.tree_actions_box)
-        t_box.setContentsMargins(0, 0, 0, 0)
-        t_box.setSpacing(4)
-
-        for text, handler in (
-            ("فتح الكل", lambda: self.cam_tree.expandAll()),
-            ("طي الكل", lambda: self.cam_tree.collapseAll()),
-        ):
-            btn = QPushButton(text)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background: #f8fafc; color: #475569; border: 1px solid #e2e8f0;
-                    border-radius: 6px; padding: 5px 10px; font-size: 11px; font-weight: 700;
-                }
-                QPushButton:hover { background: #e2e8f0; color: #0f2338; }
-            """)
-            btn.clicked.connect(handler)
-            t_box.addWidget(btn)
-
-        b_layout.addWidget(self.tree_actions_box)
+# إضافة شريط الفلاتر إلى واجهة تبويب الكاميرات
         layout.addWidget(bar)
 
-        # 1. شجرة المواقع (Tree View)
-        self.cam_tree = QTreeWidget()
-        self.cam_tree.setHeaderLabels(
-            ["الكاميرا والموقع", "الكود", "الموضع التفصيلي", "السويتش", "عنوان IP", "الحالة", "الأعطال"]
-        )
-        self.cam_tree.setRootIsDecorated(True)
-        self.cam_tree.setAlternatingRowColors(True)
-        self.cam_tree.setUniformRowHeights(True)
-        self.cam_tree.setIndentation(22)
-        self.cam_tree.setSelectionMode(QTreeWidget.SingleSelection)
-        self.cam_tree.setEditTriggers(QTreeWidget.NoEditTriggers)
-        self.cam_tree.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.cam_tree.setStyleSheet("QTreeWidget::item { height: 36px; }")
 
-        head = self.cam_tree.header()
-        head.setStretchLastSection(False)
-        head.setSectionResizeMode(QHeaderView.ResizeToContents)
-        head.setSectionResizeMode(0, QHeaderView.Stretch)
-        head.setMinimumSectionSize(80)
 
-        self.cam_tree.itemDoubleClicked.connect(self._camera_double_clicked)
-        self.cam_tree.customContextMenuRequested.connect(self.camera_menu)
-
-        tree_wrapper = wrap_card(self.cam_tree)
-        self.view_stack.addWidget(tree_wrapper)
-
-        # 2. الجدول الشامل (Master Table View)
+        # الجدول الشامل (Master Table View)
         self.cam_master_table = make_table([
             "الكود", "اسم الكاميرا", "المبنى / الفرع", "الموضع التفصيلي", "السويتش", "التثبيت والنوع",
             "الشركة والموديل", "IP", "الحالة التشغيلية", "انتهاء الضمان", "الأعطال",
@@ -2451,34 +2386,13 @@ class CamerasPage(QWidget):
         self.cam_master_table.doubleClicked.connect(lambda *_: self.show_history())
         self.cam_master_table.customContextMenuRequested.connect(self.camera_menu)
 
-        table_wrapper = wrap_card(self.cam_master_table)
-        self.view_stack.addWidget(table_wrapper)
-
-        layout.addWidget(self.view_stack, 1)
+        layout.addWidget(wrap_card(self.cam_master_table), 1)
 
         self.cam_count = QLabel("")
         self.cam_count.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 600; padding: 2px 4px;")
         layout.addWidget(self.cam_count)
 
         return tab
-
-    def _set_cameras_view(self, index):
-        self.view_stack.setCurrentIndex(index)
-        is_tree = (index == 0)
-        self.btn_view_tree.setChecked(is_tree)
-        self.btn_view_table.setChecked(not is_tree)
-
-        self.btn_view_tree.setStyleSheet(
-            "background: #0891b2; color: #fff; border: 1px solid #0891b2; border-radius: 7px; padding: 6px 12px; font-weight: 700;"
-            if is_tree else
-            "background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; border-radius: 7px; padding: 6px 12px; font-weight: 700;"
-        )
-        self.btn_view_table.setStyleSheet(
-            "background: #0891b2; color: #fff; border: 1px solid #0891b2; border-radius: 7px; padding: 6px 12px; font-weight: 700;"
-            if not is_tree else
-            "background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; border-radius: 7px; padding: 6px 12px; font-weight: 700;"
-        )
-        self.tree_actions_box.setVisible(is_tree)
 
     # =========================================================
     # التبويب الثاني: السويتشات والبنية الشبكية (Switches Tab)
@@ -2705,6 +2619,12 @@ class CamerasPage(QWidget):
     # =========================================================
 
     def load_building_filter(self):
+        if not (
+            qt_is_valid(getattr(self, "cam_building_filter", None))
+            and qt_is_valid(getattr(self, "sw_building_filter", None))
+        ):
+            return
+
         current = self.cam_building_filter.currentData()
         self.cam_building_filter.blockSignals(True)
         self.cam_building_filter.clear()
@@ -2715,8 +2635,14 @@ class CamerasPage(QWidget):
         self.sw_building_filter.addItem("كل المباني والفروع", None)
 
         for unit in building_choices():
-            self.cam_building_filter.addItem(f"[{unit['unit_type']}] {unit['name']}", unit["id"])
-            self.sw_building_filter.addItem(f"[{unit['unit_type']}] {unit['name']}", unit["id"])
+            label = f"[{unit['unit_type']}] {unit['name']}"
+            cam_index = self.cam_building_filter.count()
+            self.cam_building_filter.addItem(label, unit["id"])
+            self.cam_building_filter.setItemData(cam_index, unit["name"], Qt.UserRole + 1)
+
+            sw_index = self.sw_building_filter.count()
+            self.sw_building_filter.addItem(label, unit["id"])
+            self.sw_building_filter.setItemData(sw_index, unit["name"], Qt.UserRole + 1)
 
         index = self.cam_building_filter.findData(current) if current else -1
         self.cam_building_filter.setCurrentIndex(max(index, 0))
@@ -2752,7 +2678,7 @@ class CamerasPage(QWidget):
         return date.fromordinal(base.toordinal() + interval)
 
     # =========================================================
-    # تحميل الكاميرات (الشجرة + الجدول الشامل)
+    # تحميل الكاميرات في الجدول الشامل
     # =========================================================
 
     def load_cameras(self, *_args):
@@ -2777,8 +2703,15 @@ class CamerasPage(QWidget):
 
         building_id = self.cam_building_filter.currentData()
         if building_id:
-            clauses.append("c.building_id = ?")
-            params.append(building_id)
+            # بعض السجلات القديمة قد تحتوي على معرّف تنظيمي مختلف رغم
+            # ارتباطها بنفس اسم المبنى؛ لذلك نطابق بالمعرّف أو الاسم.
+            try:
+                building_id = int(building_id)
+            except (TypeError, ValueError):
+                pass
+            building_name = self.cam_building_filter.currentData(Qt.UserRole + 1)
+            clauses.append("(c.building_id = ? OR b.id = ? OR b.name = ?)")
+            params.extend([building_id, building_id, building_name or ""])
 
         if self.cam_placement_filter.currentIndex() > 0:
             clauses.append("c.placement = ?")
@@ -2800,19 +2733,10 @@ class CamerasPage(QWidget):
         """, params)
 
         self._camera_export = []
-        groups = {}
-        order = []
-
         self.cam_master_table.setUpdatesEnabled(False)
         self.cam_master_table.setRowCount(0)
 
         for c in rows:
-            key = c["building_id"] if c["building_name"] else 0
-            if key not in groups:
-                groups[key] = (c["building_name"] or "بدون مبنى", [])
-                order.append(key)
-            groups[key][1].append(c)
-
             switch_str = c["switch_name"] or "-"
 
             self._camera_export.append([
@@ -2850,131 +2774,15 @@ class CamerasPage(QWidget):
 
         self.cam_master_table.setUpdatesEnabled(True)
 
-        order.sort(key=lambda k: (k == 0, groups[k][0]))
-
-        tree = self.cam_tree
-        expanded = {}
-        for i in range(tree.topLevelItemCount()):
-            top_it = tree.topLevelItem(i)
-            expanded[top_it.data(0, Qt.UserRole + 1)] = top_it.isExpanded()
-
-        searching = bool(search) or self.cam_status_filter.currentIndex() > 0 or self.cam_placement_filter.currentIndex() > 0
-
-        tree.setUpdatesEnabled(False)
-        tree.clear()
-
-        group_bg = QColor("#eef4fa")
-        bold_font = QFont()
-        bold_font.setBold(True)
-
-        for key in order:
-            building_name, cams = groups[key]
-            working = sum(1 for c in cams if c["status"] == "تعمل")
-            problems = [c for c in cams if c["status"] != "تعمل"]
-
-            ratio = int((working / len(cams)) * 100) if cams else 100
-            summary = f"● {working}/{len(cams)} تعمل ({ratio}%)"
-
-            top = QTreeWidgetItem(tree)
-            top.setData(0, Qt.UserRole + 1, key)
-            top.setText(0, f"🏢  {building_name}   ({len(cams)} كاميرا)")
-            top.setText(5, summary)
-
-            for col in range(7):
-                top.setBackground(col, group_bg)
-                top.setFont(col, bold_font)
-                top.setForeground(col, QColor("#0f2338"))
-
-            top.setForeground(5, QColor("#059669" if not problems else "#d97706"))
-
-            kinds = {}
-            for c in cams:
-                kind = ((c["placement"] or "") + " " + (c["camera_type"] or "")).strip() or "غير مصنفة"
-                kinds.setdefault(kind, []).append(c)
-
-            sub_bg = QColor("#f8fafc")
-
-            for kind in sorted(kinds, key=lambda k: (k == "غير مصنفة", k)):
-                group_cams = kinds[kind]
-                sub = QTreeWidgetItem(top)
-                sub.setText(0, f"📁  {kind}  ({len(group_cams)})")
-                sub.setData(0, Qt.UserRole + 1, f"{key}|{kind}")
-
-                for col in range(7):
-                    sub.setBackground(col, sub_bg)
-                    sub.setFont(col, bold_font)
-                    sub.setForeground(col, QColor("#475569"))
-
-                for number, c in enumerate(group_cams, 1):
-                    child = QTreeWidgetItem(sub)
-                    child.setData(0, Qt.UserRole, int(c["id"]))
-
-                    status = c["status"] or "تعمل"
-                    fg, _bg, _bdr = CAMERA_STATUS_COLORS.get(status, ("#334155", None, None))
-                    faults_str = f"{c['open_count']} مفتوح" if c["open_count"] else (f"{c['faults_count']} سابق" if c["faults_count"] else "سليم")
-
-                    sw_chip = f"🖧 {c['switch_name']}" if c["switch_name"] else "-"
-
-                    texts = [
-                        f"📹 {c['name']}",
-                        c["camera_code"],
-                        c["location_detail"] or "-",
-                        sw_chip,
-                        c["ip_address"] or "-",
-                        f"● {status}",
-                        faults_str,
-                    ]
-
-                    for col, t in enumerate(texts):
-                        child.setText(col, t)
-
-                    child.setTextAlignment(0, Qt.AlignVCenter | Qt.AlignAbsolute | Qt.AlignRight)
-                    child.setTextAlignment(2, Qt.AlignVCenter | Qt.AlignAbsolute | Qt.AlignRight)
-                    child.setTextAlignment(3, Qt.AlignVCenter | Qt.AlignAbsolute | Qt.AlignRight)
-                    for col in (1, 4, 5, 6):
-                        child.setTextAlignment(col, Qt.AlignCenter)
-
-                    child.setFont(0, bold_font)
-                    child.setForeground(0, QColor("#0f2338"))
-                    child.setForeground(1, QColor("#0891b2"))
-                    child.setForeground(2, QColor("#475569"))
-                    if c["switch_name"]:
-                        child.setForeground(3, QColor("#0e7490"))
-                        child.setFont(3, bold_font)
-                        child.setToolTip(3, f"كود السويتش: {c['switch_code']}")
-                    else:
-                        child.setForeground(3, QColor("#94a3b8"))
-
-                    child.setForeground(5, QColor(fg))
-                    child.setFont(5, bold_font)
-
-                    if c["open_count"]:
-                        child.setForeground(6, QColor("#dc2626"))
-                        child.setFont(6, bold_font)
-                    else:
-                        child.setForeground(6, QColor("#94a3b8"))
-
-                sub.setExpanded(True)
-
-            top.setExpanded(expanded.get(key, True) or searching)
-
-        tree.setUpdatesEnabled(True)
-
         working_total = sum(1 for c in rows if c["status"] == "تعمل")
         total_cameras = len(rows)
         pct = int(working_total / total_cameras * 100) if total_cameras else 100
 
         self.cam_count.setText(
-            f"إجمالي النتائج: {total_cameras} كاميرا في {len(order)} مبنى/موقع   •   "
+            f"إجمالي النتائج: {total_cameras} كاميرا   •   "
             f"الجاهزية: {working_total} تعمل ({pct}%)"
         )
         self.tabs.setTabText(0, f"الكاميرات ({total_cameras})")
-
-    def _camera_double_clicked(self, item, _column):
-        if not item.data(0, Qt.UserRole):
-            item.setExpanded(not item.isExpanded())
-        else:
-            self.show_history()
 
     # =========================================================
     # تحميل السويتشات
@@ -3585,17 +3393,12 @@ class CamerasPage(QWidget):
     # =========================================================
 
     def _selected_camera_id(self):
-        if self.view_stack.currentIndex() == 0:
-            item = self.cam_tree.currentItem()
-            val = item.data(0, Qt.UserRole) if item else None
-            return int(val) if val else None
-        else:
-            rows = self.cam_master_table.selectionModel().selectedRows() if self.cam_master_table.selectionModel() else []
-            if not rows:
-                return None
-            item = self.cam_master_table.item(rows[0].row(), 0)
-            val = item.data(Qt.UserRole) if item else None
-            return int(val) if val else None
+        rows = self.cam_master_table.selectionModel().selectedRows() if self.cam_master_table.selectionModel() else []
+        if not rows:
+            return None
+        item = self.cam_master_table.item(rows[0].row(), 0)
+        val = item.data(Qt.UserRole) if item else None
+        return int(val) if val else None
 
     def _selected_fault_id(self):
         rows = self.flt_table.selectionModel().selectedRows() if self.flt_table.selectionModel() else []
@@ -3847,7 +3650,7 @@ class CamerasPage(QWidget):
         if camera_id is not None:
             self._open_history(camera_id)
         else:
-            QMessageBox.information(self, "تنبيه", "يرجى تحديد كاميرا من الشجرة أو الجدول أولاً.")
+            QMessageBox.information(self, "تنبيه", "يرجى تحديد كاميرا من الجدول أولاً.")
 
     def _open_history(self, camera_id):
         CameraHistoryDialog(
@@ -4366,6 +4169,7 @@ class CamerasPage(QWidget):
 
         def fill_sheet(sheet, headers, rows):
             sheet.sheet_view.rightToLeft = True
+        
             sheet.append(headers)
 
             for cell in sheet[1]:
