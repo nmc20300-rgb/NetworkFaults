@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QProgressDialog,
     QMenu,
+    QSplitter,
 )
 
 from database import get_connection, write_audit_log
@@ -691,6 +692,1026 @@ class FaultStatCard(QFrame):
 
 
 # =============================================================
+# نافذة سجل أعطال جهاز
+# =============================================================
+
+HISTORY_STYLE = """
+#histHeader {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #0b1d33, stop:1 #0e4a63);
+    border-radius: 16px;
+    border-right: 5px solid #22d3ee;
+}
+
+#histEyebrow {
+    color: #9be7f5;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+#histDeviceName {
+    color: white;
+    font-size: 26px;
+    font-weight: 800;
+}
+
+#histHeaderChip {
+    background: rgba(255, 255, 255, 0.10);
+    color: #e2f4f8;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 12px;
+    padding: 5px 14px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+#histHeaderMeta {
+    background: rgba(255, 255, 255, 0.08);
+    color: #c4ecf5;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 10px;
+    padding: 3px 11px;
+    font-size: 11px;
+    font-weight: 600;
+}
+
+#histTableCard {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+}
+
+#histTable {
+    background: white;
+    border: none;
+    alternate-background-color: #f8fafc;
+    selection-background-color: #e0f2fe;
+    selection-color: #0f2338;
+}
+
+#histTable::item {
+    padding: 0 8px;
+    border-bottom: 1px solid #f1f5f9;
+}
+
+#histTable QHeaderView::section {
+    background: white;
+    color: #64748b;
+    border: none;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 10px 8px;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+#histPanel {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+}
+
+#histFaultNo {
+    color: #0f2338;
+    font-size: 20px;
+    font-weight: 800;
+}
+
+#histMetaChip {
+    background: #f1f5f9;
+    color: #475569;
+    border-radius: 11px;
+    padding: 4px 12px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+#histStepTitle {
+    color: #64748b;
+    font-size: 10px;
+    font-weight: 700;
+}
+
+#histSectionTitle {
+    font-size: 11px;
+    font-weight: 800;
+}
+
+#histValue {
+    color: #0f2338;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+#histText {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: #334155;
+    font-size: 12px;
+    min-height: 44px;
+}
+
+#histHint {
+    color: #94a3b8;
+    font-size: 11px;
+}
+
+#histEmpty {
+    color: #64748b;
+    font-size: 15px;
+    font-weight: 700;
+    background: white;
+    border: 1px dashed #cbd5e1;
+    border-radius: 14px;
+    padding: 50px;
+}
+
+QSplitter::handle {
+    background: transparent;
+}
+"""
+
+
+class DeviceFaultHistoryDialog(QDialog):
+    """كل الأعطال السابقة لجهاز واحد: امتى اتصلح وايه اللي اتعمل.
+
+    القائمة على اليمين وتفاصيل العطل المحدد على الشمال في نفس النافذة.
+    """
+
+    HEADERS = [
+        "رقم العطل", "تاريخ الدخول", "وصف العطل",
+        "الحالة", "القائم بالإصلاح", "تاريخ الإصلاح",
+    ]
+
+    # (عنوان الخطوة، لون التظليل، لون الإطار، لون التمييز)
+    STEP_STYLES = [
+        ("تاريخ الدخول", "#ecfeff", "#a5f3fc", "#0891b2"),
+        ("تاريخ الإصلاح", "#f0fdf4", "#bbf7d0", "#16a34a"),
+        ("تاريخ التسليم", "#f0fdfa", "#99f6e4", "#0f766e"),
+    ]
+
+    def __init__(self, device_id, device_name="", parent=None,
+                 exclude_fault_id=None):
+        super().__init__(parent)
+
+        self.device_id = device_id
+        self.device_name = device_name or "-"
+        self.exclude_fault_id = exclude_fault_id
+        self._all_rows = []
+        self._rows = []
+
+        self.setWindowTitle(f"سجل أعطال الجهاز: {self.device_name}")
+        self.resize(1320, 860)
+        self.setMinimumSize(1100, 700)
+        self.setLayoutDirection(Qt.RightToLeft)
+        self.setObjectName("dialogRoot")
+        self.setStyleSheet(APP_STYLE + HISTORY_STYLE)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 18, 20, 14)
+        root.setSpacing(14)
+
+        root.addWidget(self._build_header())
+        root.addLayout(self._build_stats())
+
+        # قائمة الأعطال + لوحة التفاصيل في نفس الشاشة
+        self.content = QWidget()
+        content_layout = QVBoxLayout(self.content)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(10)
+        content_layout.addWidget(self._build_toolbar())
+
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(12)
+        self.splitter.addWidget(self._build_table_card())
+        self.splitter.addWidget(self._build_details_panel())
+        self.splitter.setStretchFactor(0, 5)
+        self.splitter.setStretchFactor(1, 6)
+        self.splitter.setSizes([520, 700])
+        content_layout.addWidget(self.splitter, 1)
+
+        root.addWidget(self.content, 1)
+
+        # ---------- حالة عدم وجود أعطال ----------
+        self.empty_label = QLabel(
+            "✓\n\nلا توجد أعطال سابقة لهذا الجهاز\n"
+            "سجل نظيف حتى الآن"
+        )
+        self.empty_label.setObjectName("histEmpty")
+        self.empty_label.setAlignment(Qt.AlignCenter)
+        self.empty_label.setVisible(False)
+        root.addWidget(self.empty_label, 1)
+
+        # ---------- الشريط السفلي ----------
+        footer = QHBoxLayout()
+        hint = QLabel("اختر أي عطل من القائمة لعرض تفاصيله ومسار الإصلاح")
+        hint.setObjectName("histHint")
+        footer.addWidget(hint)
+        footer.addStretch()
+
+        close_button = QPushButton("إغلاق")
+        close_button.setObjectName("primaryButton")
+        close_button.setCursor(Qt.PointingHandCursor)
+        close_button.setMinimumWidth(120)
+        close_button.clicked.connect(self.accept)
+        footer.addWidget(close_button)
+
+        root.addLayout(footer)
+
+        self.load_history()
+
+    # =========================================================
+    # بناء الواجهة
+    # =========================================================
+
+    def _load_device_meta(self):
+        """بيانات مختصرة عن الجهاز تظهر تحت اسمه في الهيدر."""
+        row = None
+        connection = get_connection()
+
+        try:
+            cursor = connection.cursor()
+            cursor.execute("""
+                SELECT
+                    devices.user_name,
+                    devices.serial_number,
+                    buildings.name AS building_name
+                FROM devices
+                LEFT JOIN buildings
+                    ON devices.building_id = buildings.id
+                WHERE devices.id = ?
+            """, (self.device_id,))
+            row = cursor.fetchone()
+        except Exception:
+            row = None
+        finally:
+            connection.close()
+
+        meta = []
+
+        if row:
+            for label, key in (
+                ("المبنى", "building_name"),
+                ("المستخدم", "user_name"),
+                ("الرقم التسلسلي", "serial_number"),
+            ):
+                value = str(row[key] or "").strip()
+
+                if value:
+                    meta.append(f"{label}: {value}")
+
+        return meta
+
+    def _build_header(self):
+        header = QFrame()
+        header.setObjectName("histHeader")
+        header.setLayoutDirection(Qt.RightToLeft)
+
+        layout = QHBoxLayout(header)
+        layout.setContentsMargins(26, 18, 26, 18)
+        layout.setSpacing(14)
+
+        # محاذاة فعلية لليمين بغض النظر عن اتجاه الواجهة
+        right = Qt.AlignAbsolute | Qt.AlignRight | Qt.AlignVCenter
+
+        text_box = QVBoxLayout()
+        text_box.setSpacing(5)
+
+        eyebrow = QLabel("الأعطال والإصلاحات السابقة")
+        eyebrow.setObjectName("histEyebrow")
+        eyebrow.setAlignment(right)
+
+        name = QLabel(self.device_name)
+        name.setObjectName("histDeviceName")
+        name.setWordWrap(True)
+        name.setAlignment(right)
+
+        text_box.addWidget(eyebrow)
+        text_box.addWidget(name)
+
+        meta = self._load_device_meta()
+
+        if meta:
+            meta_row = QHBoxLayout()
+            meta_row.setSpacing(8)
+            meta_row.setContentsMargins(0, 4, 0, 0)
+
+            for text in meta:
+                chip = QLabel(text)
+                chip.setObjectName("histHeaderMeta")
+                meta_row.addWidget(chip)
+
+            meta_row.addStretch()
+            text_box.addLayout(meta_row)
+
+        layout.addLayout(text_box, 1)
+
+        self.header_count_chip = QLabel("")
+        self.header_count_chip.setObjectName("histHeaderChip")
+        layout.addWidget(self.header_count_chip, 0, Qt.AlignVCenter)
+
+        if self.exclude_fault_id:
+            note = QLabel("لا يشمل العطل الحالي")
+            note.setObjectName("histHeaderChip")
+            layout.addWidget(note, 0, Qt.AlignVCenter)
+
+        return header
+
+    def _build_stats(self):
+        row = QHBoxLayout()
+        row.setSpacing(12)
+
+        self.stat_cards = {}
+
+        items = [
+            ("total", "إجمالي الأعطال", "#0891b2"),
+            ("last_fault", "آخر عطل", "#7c3aed"),
+            ("last_repair", "آخر إصلاح", "#16a34a"),
+            ("avg_time", "متوسط مدة الإصلاح", "#d97706"),
+            ("technician", "الأكثر إصلاحًا للجهاز", "#0f766e"),
+        ]
+
+        for key, title, accent in items:
+            card = FaultStatCard(title, accent, False)
+            card.setMinimumHeight(88)
+            card.value_label.setStyleSheet(
+                "font-size:18px;font-weight:800;color:#0f2338;"
+            )
+            row.addWidget(card, 1)
+            self.stat_cards[key] = card
+
+        return row
+
+    def _build_toolbar(self):
+        bar = QFrame()
+        bar.setObjectName("toolBar")
+
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(12, 8, 12, 8)
+        layout.setSpacing(10)
+
+        self.search = QLineEdit()
+        self.search.setObjectName("searchBox")
+        self.search.setClearButtonEnabled(True)
+        self.search.setPlaceholderText(
+            "ابحث في وصف العطل أو الإجراء أو قطع الغيار أو القائم بالإصلاح..."
+        )
+        self.search.textChanged.connect(self._apply_filter)
+        layout.addWidget(self.search, 1)
+
+        self.status_filter = QComboBox()
+        self.status_filter.addItem("كل الحالات")
+        self.status_filter.currentIndexChanged.connect(self._apply_filter)
+        layout.addWidget(self.status_filter)
+
+        self.result_label = QLabel("")
+        self.result_label.setObjectName("histHint")
+        layout.addWidget(self.result_label)
+
+        return bar
+
+    def _build_table_card(self):
+        card = QFrame()
+        card.setObjectName("histTableCard")
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(6, 6, 6, 6)
+
+        self.table = QTableWidget()
+        self.table.setObjectName("histTable")
+        self.table.setColumnCount(len(self.HEADERS))
+        self.table.setHorizontalHeaderLabels(self.HEADERS)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
+        self.table.setWordWrap(False)
+        self.table.setFrameShape(QFrame.NoFrame)
+        self.table.verticalHeader().setVisible(False)
+        self.table.verticalHeader().setDefaultSectionSize(46)
+
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        header.setHighlightSections(False)
+
+        self.table.itemSelectionChanged.connect(self._show_details)
+
+        # القائمة مختصرة، والباقي يظهر في لوحة التفاصيل
+        self.table.setColumnHidden(4, True)
+        self.table.setColumnHidden(5, True)
+
+        layout.addWidget(self.table)
+
+        return card
+
+    def _make_step(self, title, tint, border, accent):
+        frame = QFrame()
+        frame.setObjectName("histStep")
+
+        layout = QHBoxLayout(frame)
+        layout.setContentsMargins(16, 10, 16, 10)
+        layout.setSpacing(12)
+
+        dot = QLabel()
+        dot.setFixedSize(12, 12)
+        layout.addWidget(dot, 0, Qt.AlignVCenter)
+
+        text = QVBoxLayout()
+        text.setSpacing(2)
+
+        title_label = QLabel(title)
+        title_label.setObjectName("histStepTitle")
+
+        value_label = QLabel("-")
+        value_label.setObjectName("histValue")
+
+        text.addWidget(title_label)
+        text.addWidget(value_label)
+        layout.addLayout(text, 1)
+
+        step = {
+            "frame": frame,
+            "dot": dot,
+            "value": value_label,
+            "tint": tint,
+            "border": border,
+            "accent": accent,
+        }
+
+        self._set_step(step, "-")
+
+        return step
+
+    @staticmethod
+    def _set_step(step, text):
+        done = text != "-"
+
+        step["frame"].setStyleSheet(
+            "#histStep {"
+            f"background:{step['tint'] if done else '#f8fafc'};"
+            f"border:1px {'solid' if done else 'dashed'} "
+            f"{step['border'] if done else '#cbd5e1'};"
+            "border-radius:12px;}"
+        )
+
+        step["dot"].setStyleSheet(
+            f"background:{step['accent'] if done else '#cbd5e1'};"
+            "border-radius:6px;"
+        )
+
+        step["value"].setText(text)
+        step["value"].setStyleSheet(
+            "color:#0f2338;font-weight:800;font-size:12px;"
+            if done
+            else "color:#94a3b8;font-weight:600;font-size:12px;"
+        )
+
+    def _make_section(self, title, body, accent):
+        section = QFrame()
+        section.setObjectName("histSection")
+        section.setStyleSheet(
+            "#histSection {"
+            "background:#fbfdff;"
+            "border:1px solid #e2e8f0;"
+            f"border-right:4px solid {accent};"
+            "border-radius:12px;}"
+        )
+
+        layout = QVBoxLayout(section)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(6)
+
+        title_label = QLabel(title)
+        title_label.setObjectName("histSectionTitle")
+        title_label.setStyleSheet(f"color:{accent};")
+
+        layout.addWidget(title_label)
+        layout.addWidget(body)
+
+        return section
+
+    def _make_text_box(self):
+        box = QTextEdit()
+        box.setObjectName("histText")
+        box.setReadOnly(True)
+        box.setFrameShape(QFrame.NoFrame)
+        box.setMinimumHeight(60)
+        box.setMaximumHeight(130)
+        return box
+
+    def _build_details_panel(self):
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setStyleSheet("QScrollArea{background:transparent;}")
+
+        panel = QFrame()
+        panel.setObjectName("histPanel")
+
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(14)
+
+        # --- رقم العطل + الحالة + الأولوية ---
+        top = QHBoxLayout()
+        top.setSpacing(8)
+
+        self.detail_number = QLabel("-")
+        self.detail_number.setObjectName("histFaultNo")
+        top.addWidget(self.detail_number)
+
+        self.detail_status = QLabel("")
+        self.detail_status.setVisible(False)
+        top.addWidget(self.detail_status)
+
+        self.detail_priority = QLabel("")
+        self.detail_priority.setVisible(False)
+        top.addWidget(self.detail_priority)
+
+        top.addStretch()
+        layout.addLayout(top)
+
+        # --- شريحتا المدة والعمر ---
+        chips = QHBoxLayout()
+        chips.setSpacing(8)
+
+        self.detail_duration = QLabel("")
+        self.detail_duration.setObjectName("histMetaChip")
+        self.detail_duration.setVisible(False)
+        chips.addWidget(self.detail_duration)
+
+        self.detail_age = QLabel("")
+        self.detail_age.setObjectName("histMetaChip")
+        self.detail_age.setVisible(False)
+        chips.addWidget(self.detail_age)
+
+        chips.addStretch()
+        layout.addLayout(chips)
+
+        # --- الخط الزمني: دخول ← إصلاح ← تسليم ---
+        timeline = QHBoxLayout()
+        timeline.setSpacing(0)
+
+        self.steps = [self._make_step(*style) for style in self.STEP_STYLES]
+        self.connectors = []
+
+        for index, step in enumerate(self.steps):
+            timeline.addWidget(step["frame"], 1)
+
+            if index < len(self.steps) - 1:
+                line = QFrame()
+                line.setFixedHeight(3)
+                line.setMinimumWidth(24)
+                line.setStyleSheet("background:#e2e8f0;border-radius:1px;")
+                timeline.addWidget(line, 0, Qt.AlignVCenter)
+                self.connectors.append(line)
+
+        layout.addLayout(timeline)
+
+        # --- الوصف + الإجراء ---
+        self.detail_description = self._make_text_box()
+        self.detail_actions = self._make_text_box()
+
+        layout.addWidget(
+            self._make_section("وصف العطل", self.detail_description, "#dc2626")
+        )
+        layout.addWidget(
+            self._make_section("الإجراء المتخذ", self.detail_actions, "#16a34a")
+        )
+
+        # --- قطع الغيار + القائم بالإصلاح ---
+        row1 = QHBoxLayout()
+        row1.setSpacing(12)
+
+        self.detail_parts = QLabel("-")
+        self.detail_parts.setObjectName("histValue")
+        self.detail_parts.setWordWrap(True)
+
+        self.detail_technician = QLabel("-")
+        self.detail_technician.setObjectName("histValue")
+        self.detail_technician.setWordWrap(True)
+
+        row1.addWidget(
+            self._make_section(
+                "قطع الغيار المستخدمة", self.detail_parts, "#d97706"
+            ), 1
+        )
+        row1.addWidget(
+            self._make_section(
+                "القائم بالإصلاح", self.detail_technician, "#0891b2"
+            ), 1
+        )
+        layout.addLayout(row1)
+
+        # --- المستخدم + المستلم ---
+        row2 = QHBoxLayout()
+        row2.setSpacing(12)
+
+        self.detail_user = QLabel("-")
+        self.detail_user.setObjectName("histValue")
+        self.detail_user.setWordWrap(True)
+
+        self.detail_receiver = QLabel("-")
+        self.detail_receiver.setObjectName("histValue")
+        self.detail_receiver.setWordWrap(True)
+
+        row2.addWidget(
+            self._make_section("اسم المستخدم", self.detail_user, "#7c3aed"), 1
+        )
+        row2.addWidget(
+            self._make_section("اسم المستلم", self.detail_receiver, "#0f766e"), 1
+        )
+        layout.addLayout(row2)
+
+        # --- ملاحظات ---
+        self.detail_notes = self._make_text_box()
+        self.detail_notes.setMinimumHeight(44)
+        layout.addWidget(
+            self._make_section("ملاحظات", self.detail_notes, "#64748b")
+        )
+
+        layout.addStretch()
+
+        scroll.setWidget(panel)
+        return scroll
+
+    # =========================================================
+    # مساعدات
+    # =========================================================
+
+    @staticmethod
+    def _valid_dt(value):
+        """يرجع datetime صالح أو None (ويتجاهل القيمة الافتراضية القديمة 2000-01-01)."""
+        parsed = parse_datetime(value)
+
+        if not parsed:
+            return None
+
+        if not isinstance(parsed, datetime):
+            try:
+                parsed = datetime(parsed.year, parsed.month, parsed.day)
+            except AttributeError:
+                return None
+
+        if parsed == datetime(2000, 1, 1):
+            return None
+
+        return parsed
+
+    @classmethod
+    def _fmt_optional(cls, value, with_time=True):
+        parsed = cls._valid_dt(value)
+
+        if not parsed:
+            return "-"
+
+        return parsed.strftime("%Y-%m-%d %H:%M" if with_time else "%Y-%m-%d")
+
+    @staticmethod
+    def _badge_style(colors):
+        foreground, background = colors
+        return (
+            f"color:{foreground};"
+            f"background:{background or '#f1f5f9'};"
+            "border-radius:12px;padding:5px 15px;"
+            "font-weight:800;font-size:11px;"
+        )
+
+    @staticmethod
+    def _format_days(days):
+        if days < 1:
+            return "أقل من يوم"
+        whole = int(round(days))
+        if whole == 1:
+            return "يوم واحد"
+        if whole == 2:
+            return "يومان"
+        return f"{whole} يوم"
+
+    # =========================================================
+    # تحميل البيانات
+    # =========================================================
+
+    def load_history(self):
+        sql = """
+            SELECT id, fault_number, entry_date, fault_description,
+                   repair_actions, spare_parts, technician, priority,
+                   status, repair_date, delivery_date, user_name,
+                   receiver_name, notes
+            FROM faults
+            WHERE device_id = ?
+        """
+        params = [self.device_id]
+
+        if self.exclude_fault_id:
+            sql += " AND id <> ?"
+            params.append(self.exclude_fault_id)
+
+        sql += " ORDER BY entry_date DESC, id DESC"
+
+        connection = get_connection()
+        try:
+            cursor = connection.cursor()
+            cursor.execute(sql, params)
+            self._all_rows = cursor.fetchall()
+        finally:
+            connection.close()
+
+        total = len(self._all_rows)
+
+        self.header_count_chip.setText(f"{total} عطل مسجل")
+
+        self._fill_stats()
+
+        # قائمة الحالات الموجودة فعلًا في سجل هذا الجهاز
+        present_statuses = []
+        for fault in self._all_rows:
+            status = fault["status"] or ""
+            if status and status not in present_statuses:
+                present_statuses.append(status)
+
+        self.status_filter.blockSignals(True)
+        self.status_filter.clear()
+        self.status_filter.addItem("كل الحالات")
+        for status in present_statuses:
+            self.status_filter.addItem(status)
+        self.status_filter.blockSignals(False)
+
+        has_rows = total > 0
+        self.content.setVisible(has_rows)
+        self.empty_label.setVisible(not has_rows)
+
+        if has_rows:
+            self._apply_filter()
+
+    def _fill_stats(self):
+        from collections import Counter
+
+        rows = self._all_rows
+        cards = self.stat_cards
+
+        cards["total"].set_value(len(rows))
+
+        if not rows:
+            for key in ("last_fault", "last_repair", "avg_time", "technician"):
+                cards[key].set_value("-")
+            return
+
+        cards["last_fault"].set_value(
+            self._fmt_optional(rows[0]["entry_date"], with_time=False)
+        )
+
+        repair_dates = [
+            d for d in (self._valid_dt(f["repair_date"]) for f in rows) if d
+        ]
+        cards["last_repair"].set_value(
+            max(repair_dates).strftime("%Y-%m-%d") if repair_dates else "-"
+        )
+
+        durations = []
+        for fault in rows:
+            entry = self._valid_dt(fault["entry_date"])
+            repair = self._valid_dt(fault["repair_date"])
+
+            if entry and repair and repair >= entry:
+                durations.append((repair - entry).total_seconds() / 86400)
+
+        cards["avg_time"].set_value(
+            self._format_days(sum(durations) / len(durations))
+            if durations
+            else "-"
+        )
+
+        technicians = Counter(
+            (f["technician"] or "").strip()
+            for f in rows
+            if (f["technician"] or "").strip()
+        )
+
+        if technicians:
+            name, count = technicians.most_common(1)[0]
+            cards["technician"].set_value(f"{name} ({count})")
+        else:
+            cards["technician"].set_value("-")
+
+    # =========================================================
+    # الفلترة وملء الجدول
+    # =========================================================
+
+    def _apply_filter(self, *_args):
+        text = self.search.text().strip().lower()
+        status = (
+            self.status_filter.currentText()
+            if self.status_filter.currentIndex() > 0
+            else None
+        )
+
+        def matches(fault):
+            if status and (fault["status"] or "") != status:
+                return False
+
+            if not text:
+                return True
+
+            haystack = " ".join(
+                str(fault[key] or "")
+                for key in (
+                    "fault_number", "fault_description", "repair_actions",
+                    "spare_parts", "technician",
+                )
+            ).lower()
+
+            return text in haystack
+
+        self._rows = [f for f in self._all_rows if matches(f)]
+        self._fill_table()
+
+    def _fill_table(self):
+        self.table.setUpdatesEnabled(False)
+        self.table.setRowCount(0)
+
+        def one_line(value):
+            return (value or "").replace("\n", " ").strip()
+
+        for fault in self._rows:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+
+            description = one_line(fault["fault_description"])
+
+            values = [
+                fault["fault_number"],
+                format_datetime(fault["entry_date"]),
+                description,
+                fault["status"] or "",
+                fault["technician"] or "",
+                self._fmt_optional(fault["repair_date"]),
+            ]
+
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(str(value))
+                item.setTextAlignment(Qt.AlignCenter)
+
+                if column == 0:
+                    font = item.font()
+                    font.setBold(True)
+                    item.setFont(font)
+
+                if column == 2:
+                    item.setToolTip(description)
+
+                if column == 3 and value in STATUS_COLORS:
+                    FaultsPage._paint_badge(item, STATUS_COLORS[value])
+
+                if column in (4, 5) and value in ("", "-"):
+                    item.setText("-")
+                    item.setForeground(QColor("#94a3b8"))
+
+                self.table.setItem(row, column, item)
+
+        self.table.setUpdatesEnabled(True)
+
+        shown = len(self._rows)
+        total = len(self._all_rows)
+
+        self.result_label.setText(
+            f"{shown} من {total}" if shown != total else f"{total} عطل"
+        )
+
+        if self._rows:
+            self.table.selectRow(0)
+        else:
+            self._clear_details()
+
+    # =========================================================
+    # التفاصيل
+    # =========================================================
+
+    def _update_connectors(self):
+        for index, line in enumerate(self.connectors):
+            next_step = self.steps[index + 1]
+            done = next_step["value"].text() != "-"
+
+            line.setStyleSheet(
+                f"background:{next_step['accent'] if done else '#e2e8f0'};"
+                "border-radius:1px;"
+            )
+
+    def _clear_details(self):
+        self.detail_number.setText("لا توجد نتائج مطابقة")
+        self.detail_status.setVisible(False)
+        self.detail_priority.setVisible(False)
+        self.detail_duration.setVisible(False)
+        self.detail_age.setVisible(False)
+
+        for step in self.steps:
+            self._set_step(step, "-")
+
+        self._update_connectors()
+
+        self.detail_description.clear()
+        self.detail_actions.clear()
+        self.detail_notes.clear()
+        self.detail_parts.setText("-")
+        self.detail_technician.setText("-")
+        self.detail_user.setText("-")
+        self.detail_receiver.setText("-")
+
+    def _show_details(self):
+        selected = self.table.selectedItems()
+
+        if not selected:
+            return
+
+        index = selected[0].row()
+
+        if index >= len(self._rows):
+            return
+
+        fault = self._rows[index]
+
+        self.detail_number.setText(f"عطل رقم {fault['fault_number']}")
+
+        status = fault["status"] or ""
+        self.detail_status.setVisible(bool(status))
+        self.detail_status.setText(status)
+        self.detail_status.setStyleSheet(
+            self._badge_style(
+                STATUS_COLORS.get(status, ("#475569", "#f1f5f9"))
+            )
+        )
+
+        priority = fault["priority"] or ""
+        self.detail_priority.setVisible(bool(priority))
+        self.detail_priority.setText(f"الأولوية: {priority}")
+        self.detail_priority.setStyleSheet(
+            self._badge_style(
+                PRIORITY_COLORS.get(priority, ("#475569", "#f1f5f9"))
+            )
+        )
+
+        entry = self._valid_dt(fault["entry_date"])
+        repair = self._valid_dt(fault["repair_date"])
+
+        # مدة الإصلاح
+        if entry and repair and repair >= entry:
+            self.detail_duration.setText(
+                "مدة الإصلاح: "
+                + self._format_days(
+                    (repair - entry).total_seconds() / 86400
+                )
+            )
+            self.detail_duration.setVisible(True)
+        else:
+            self.detail_duration.setVisible(False)
+
+        # عمر العطل
+        if entry:
+            days = (datetime.now() - entry).days
+
+            if days <= 0:
+                age_text = "سُجّل اليوم"
+            elif days == 1:
+                age_text = "سُجّل أمس"
+            else:
+                age_text = f"سُجّل منذ {days} يوم"
+
+            self.detail_age.setText(age_text)
+            self.detail_age.setVisible(True)
+        else:
+            self.detail_age.setVisible(False)
+
+        self._set_step(
+            self.steps[0], self._fmt_optional(fault["entry_date"])
+        )
+        self._set_step(
+            self.steps[1], self._fmt_optional(fault["repair_date"])
+        )
+        self._set_step(
+            self.steps[2], self._fmt_optional(fault["delivery_date"])
+        )
+        self._update_connectors()
+
+        self.detail_description.setPlainText(
+            fault["fault_description"] or "-"
+        )
+        self.detail_actions.setPlainText(fault["repair_actions"] or "-")
+        self.detail_notes.setPlainText(fault["notes"] or "-")
+        self.detail_parts.setText(fault["spare_parts"] or "-")
+        self.detail_technician.setText(
+            (fault["technician"] or "").strip() or "-"
+        )
+        self.detail_user.setText((fault["user_name"] or "").strip() or "-")
+        self.detail_receiver.setText(
+            (fault["receiver_name"] or "").strip() or "-"
+        )
+
+
+# =============================================================
 # نافذة إضافة / تعديل عطل
 # =============================================================
 
@@ -863,6 +1884,23 @@ class FaultDialog(QDialog):
         self.repair_date = self._optional_datetime_edit()
         self.delivery_date = self._optional_datetime_edit()
 
+        # زرار سجل أعطال الجهاز جنب قائمة الأجهزة
+        self.history_button = QPushButton("سجل الأعطال (0)")
+        self.history_button.setObjectName("secondaryButton")
+        self.history_button.setStyleSheet("padding: 6px 12px;")
+        self.history_button.setToolTip("عرض الأعطال السابقة لهذا الجهاز")
+        self.history_button.setEnabled(False)
+        self.history_button.clicked.connect(self.show_device_history)
+
+        device_box = QHBoxLayout()
+        device_box.setContentsMargins(0, 0, 0, 0)
+        device_box.setSpacing(8)
+        device_box.addWidget(self.device, 1)
+        device_box.addWidget(self.history_button)
+
+        self.device_container = QWidget()
+        self.device_container.setLayout(device_box)
+
         def add_pair(row, right_label, right_widget, left_label, left_widget):
             for column, label_text, widget in (
                 (0, right_label, right_widget),
@@ -885,7 +1923,7 @@ class FaultDialog(QDialog):
 
         add_pair(0, "رقم العطل", self.fault_number,
                  "تاريخ الدخول", self.entry_date)
-        add_pair(1, "الجهاز *", self.device,
+        add_pair(1, "الجهاز *", self.device_container,
                  "المبنى / الفرع", self.building)
         add_full(2, "مواصفات الجهاز", self.device_specs)
         add_pair(3, "اسم المستخدم", self.user_name,
@@ -1082,6 +2120,32 @@ class FaultDialog(QDialog):
 
             self.spare_part.addItem(label, part["id"])
 
+    def _previous_faults_count(self, device_id):
+        connection = get_connection()
+        try:
+            cursor = connection.cursor()
+            sql = "SELECT COUNT(*) FROM faults WHERE device_id = ?"
+            params = [device_id]
+            if self.fault:
+                sql += " AND id <> ?"
+                params.append(self.fault["id"])
+            cursor.execute(sql, params)
+            return cursor.fetchone()[0] or 0
+        finally:
+            connection.close()
+
+    def show_device_history(self):
+        device_id = self.device.currentData()
+        if not device_id:
+            return
+
+        DeviceFaultHistoryDialog(
+            device_id,
+            self.device.currentText(),
+            self,
+            exclude_fault_id=self.fault["id"] if self.fault else None,
+        ).exec()
+
     def device_changed(self):
         device_id = self.device.currentData()
 
@@ -1089,6 +2153,8 @@ class FaultDialog(QDialog):
             self.building.clear()
             self.user_name.clear()
             self.device_specs.clear()
+            self.history_button.setText("سجل الأعطال (0)")
+            self.history_button.setEnabled(False)
             return
 
         connection = get_connection()
@@ -1125,6 +2191,10 @@ class FaultDialog(QDialog):
         )
 
         self.device_specs.setPlainText(specs)
+
+        count = self._previous_faults_count(device_id)
+        self.history_button.setText(f"سجل الأعطال ({count})")
+        self.history_button.setEnabled(True)
 
     def generate_fault_number(self):
         year = datetime.now().year
@@ -2183,6 +3253,11 @@ class FaultsPage(QWidget):
                 self.print_delivery_receipt(selected_id)
         )
 
+        menu.addAction("سجل أعطال هذا الجهاز").triggered.connect(
+            lambda checked=False, selected_id=fault_id:
+                self.show_device_history(selected_id)
+        )
+
         if self.has_permission("faults.delete"):
             menu.addAction("حذف").triggered.connect(
                 lambda checked=False, selected_id=fault_id:
@@ -2212,6 +3287,35 @@ class FaultsPage(QWidget):
             connection.close()
         self.show_notice(f"تم تغيير الحالة إلى: {status}")
         self.load_faults()
+
+    def show_device_history(self, fault_id=None):
+        """يفتح سجل أعطال الجهاز المرتبط بالعطل المحدد."""
+        fault_id = self._selected_fault_id(fault_id)
+        if fault_id is None:
+            return
+
+        connection = get_connection()
+        try:
+            cursor = connection.cursor()
+            cursor.execute("""
+                SELECT faults.device_id, devices.device_name
+                FROM faults
+                LEFT JOIN devices ON faults.device_id = devices.id
+                WHERE faults.id = ?
+            """, (fault_id,))
+            row = cursor.fetchone()
+        finally:
+            connection.close()
+
+        if not row or not row["device_id"]:
+            QMessageBox.information(
+                self, "تنبيه", "هذا العطل غير مرتبط بجهاز."
+            )
+            return
+
+        DeviceFaultHistoryDialog(
+            row["device_id"], row["device_name"] or "", self
+        ).exec()
 
     def _query_filtered_faults(self):
         where_sql, params = self._build_filters()

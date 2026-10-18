@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (
     QSpinBox, QDateEdit, QPlainTextEdit, QLineEdit,
     QMessageBox, QFrame, QDialogButtonBox,
     QAbstractItemView, QScrollArea, QFileDialog,
-    QStyle, QStyleOptionComboBox,
+    QStyle, QStyleOptionComboBox, QCheckBox,
 )
 from PySide6.QtCore import (
     Qt, QDate, QByteArray, QSize, QTimer, QObject, QEvent, QPoint, QPointF,
@@ -626,6 +626,267 @@ class InkViewDialog(QDialog):
 
 
 # ─────────────────────────────────────────────────────────────
+# History Dialog: السجل التاريخي لحبارات وحدة / مكتب
+# ─────────────────────────────────────────────────────────────
+
+class InkHistoryDialog(QDialog):
+    """كل حركات الأحبار السابقة لوحدة أو مكتب معيّن، مع إحصائيات وفلاتر."""
+
+    def __init__(self, parent=None, record=None):
+        super().__init__(parent)
+        self.record = record or {}
+        self.unit_id = self.record.get("org_unit_id")
+        self.office_id = self.record.get("office_id")
+        self._rows = []
+
+        unit_name = self.record.get("unit_name") or "-"
+        office_name = self.record.get("office_name") or ""
+
+        self.setWindowTitle("السجل التاريخي للأحبار")
+        self.resize(980, 640)
+        self.setLayoutDirection(Qt.RightToLeft)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 18, 20, 14)
+        root.setSpacing(12)
+
+        # Header
+        header = QFrame()
+        header.setObjectName("dialogHeader")
+        hl = QVBoxLayout(header)
+        hl.setContentsMargins(18, 14, 18, 14)
+        hl.setSpacing(2)
+
+        title = QLabel("السجل التاريخي للأحبار")
+        title.setObjectName("dialogTitle")
+        title.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        hl.addWidget(title)
+
+        where = unit_name + (f"  ◂  {office_name}" if office_name else "")
+        self.where_lbl = QLabel(where)
+        self.where_lbl.setObjectName("dialogSub")
+        self.where_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        hl.addWidget(self.where_lbl)
+        root.addWidget(header)
+
+        # Stat cards
+        stats = QHBoxLayout()
+        stats.setSpacing(10)
+        self.stat_labels = {}
+        for key, text in (
+            ("moves", "عدد الحركات"),
+            ("qty", "إجمالي العدد"),
+            ("fill", "مرات الملئ"),
+            ("repair", "مرات الإصلاح"),
+            ("scrap", "التكهين"),
+            ("last", "آخر حركة"),
+        ):
+            card = QFrame()
+            card.setObjectName("statCard")
+            cl = QVBoxLayout(card)
+            cl.setContentsMargins(12, 8, 12, 8)
+            cl.setSpacing(0)
+            value = QLabel("0")
+            value.setObjectName("statValue")
+            value.setAlignment(Qt.AlignCenter)
+            caption = QLabel(text)
+            caption.setObjectName("statCaption")
+            caption.setAlignment(Qt.AlignCenter)
+            cl.addWidget(value)
+            cl.addWidget(caption)
+            stats.addWidget(card, 1)
+            self.stat_labels[key] = value
+        root.addLayout(stats)
+
+        # Filters
+        bar = QHBoxLayout()
+        bar.setSpacing(10)
+
+        self.scope_check = QCheckBox("كل مكاتب الوحدة")
+        self.scope_check.setVisible(bool(self.office_id))
+        self.scope_check.toggled.connect(self.load)
+        bar.addWidget(self.scope_check)
+
+        self.status_filter = QComboBox()
+        self.status_filter.addItem("كل الملاحظات", "")
+        for s in STATUS_CHOICES:
+            self.status_filter.addItem(s, s)
+        self.status_filter.currentIndexChanged.connect(self._apply_filter)
+        bar.addWidget(self.status_filter)
+
+        self.search = QLineEdit()
+        self.search.setPlaceholderText("بحث بالمكتب أو سبب التكهين …")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self._apply_filter)
+        bar.addWidget(self.search, 1)
+        root.addLayout(bar)
+
+        # Table
+        self.table = QTableWidget()
+        self.table.setColumnCount(7)
+        self.table.setHorizontalHeaderLabels([
+            "م", "التاريخ", "المكتب", "العدد",
+            "تاريخ التسليم", "الملاحظات", "بواسطة",
+        ])
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setDefaultSectionSize(40)
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.doubleClicked.connect(self._open_selected)
+        root.addWidget(self.table, 1)
+
+        self.hint = QLabel("انقر مرتين على أي حركة لعرض تفاصيلها")
+        self.hint.setStyleSheet("color:#64748b;font-size:11px;")
+        root.addWidget(self.hint)
+
+        close = QPushButton("إغلاق")
+        close.setObjectName("primaryButton")
+        close.clicked.connect(self.accept)
+        root.addWidget(close)
+
+        self.setStyleSheet("""
+            #dialogHeader {
+                background: #0f2338; border-radius: 10px;
+                border-bottom: 3px solid #0891b2;
+            }
+            #dialogTitle { color: white; font-size: 17px; font-weight: 800; }
+            #dialogSub { color: #9be7f5; font-size: 13px; font-weight: 700; }
+            #statCard {
+                background: white; border: 1px solid #e2e8f0; border-radius: 10px;
+            }
+            #statValue { color: #0f2338; font-size: 18px; font-weight: 800; }
+            #statCaption { color: #64748b; font-size: 11px; }
+            QTableWidget {
+                background: white; border: 1px solid #e2e8f0; border-radius: 10px;
+                alternate-background-color: #f8fafc;
+                selection-background-color: #e0f2fe; selection-color: #0f2338;
+            }
+            QHeaderView::section {
+                background: #f8fafc; color: #0f2338; padding: 8px;
+                border: none; border-bottom: 2px solid #0891b2; font-weight: 700;
+            }
+            QLineEdit, QComboBox {
+                background: white; border: 1px solid #cbd5e1;
+                border-radius: 8px; padding: 5px 10px; min-height: 22px;
+            }
+            QPushButton#primaryButton {
+                background: #0891b2; color: white; border: none;
+                border-radius: 9px; padding: 8px 18px; font-weight: 700;
+            }
+            QPushButton#primaryButton:hover { background: #0e7490; }
+        """)
+
+        self.load()
+
+    def load(self, *_args):
+        where = ["it.org_unit_id = ?"]
+        params = [self.unit_id]
+
+        if self.office_id and not self.scope_check.isChecked():
+            where.append("it.office_id = ?")
+            params.append(self.office_id)
+
+        try:
+            conn = get_connection()
+            cur = conn.cursor()
+            cur.execute(f"""
+                SELECT
+                    it.id, it.serial_number, it.trans_date,
+                    it.org_unit_id, ou.name AS unit_name,
+                    it.office_id, ofc.name AS office_name,
+                    it.quantity, it.delivery_date,
+                    it.status, it.disposal_reason,
+                    it.created_by, u.full_name AS created_by_name,
+                    it.created_at, it.updated_at
+                FROM dbo.ink_transactions it
+                LEFT JOIN dbo.org_units ou ON ou.id = it.org_unit_id
+                LEFT JOIN dbo.org_units ofc ON ofc.id = it.office_id
+                LEFT JOIN dbo.users u ON u.id = it.created_by
+                WHERE {' AND '.join(where)}
+                ORDER BY it.trans_date DESC, it.serial_number DESC
+            """, params)
+            self._rows = [dict(r.items()) for r in cur.fetchall()]
+            conn.close()
+        except Exception as e:
+            QMessageBox.critical(self, "خطأ", f"تعذر تحميل السجل:\n{e}")
+            return
+
+        self._update_stats()
+        self._apply_filter()
+
+    def _update_stats(self):
+        rows = self._rows
+
+        def count(*names):
+            return sum(1 for r in rows if r.get("status") in names)
+
+        self.stat_labels["moves"].setText(str(len(rows)))
+        self.stat_labels["qty"].setText(
+            str(sum(int(r.get("quantity") or 0) for r in rows))
+        )
+        self.stat_labels["fill"].setText(str(count("ملئ", "ملئ و إصلاح")))
+        self.stat_labels["repair"].setText(str(count("إصلاح", "ملئ و إصلاح")))
+        self.stat_labels["scrap"].setText(str(count("تكهين")))
+        self.stat_labels["last"].setText(
+            str(rows[0]["trans_date"])[:10] if rows else "-"
+        )
+
+    def _apply_filter(self, *_args):
+        status = self.status_filter.currentData()
+        text = self.search.text().strip().lower()
+
+        shown = []
+        for r in self._rows:
+            if status and r.get("status") != status:
+                continue
+            if text and text not in (
+                f"{r.get('office_name') or ''} {r.get('disposal_reason') or ''}"
+            ).lower():
+                continue
+            shown.append(r)
+
+        self._shown = shown
+        self.table.setRowCount(0)
+
+        for i, r in enumerate(shown):
+            self.table.insertRow(i)
+            delivery = str(r["delivery_date"])[:10] if r.get("delivery_date") else "—"
+            values = [
+                str(r["serial_number"]),
+                str(r["trans_date"])[:10],
+                r.get("office_name") or "—",
+                str(r["quantity"]),
+                delivery,
+                r.get("status") or "",
+                r.get("created_by_name") or "—",
+            ]
+            for col, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setTextAlignment(Qt.AlignCenter)
+                if col == 5:
+                    bg, fg = STATUS_COLORS.get(value, ("#f8fafc", "#334155"))
+                    item.setBackground(QColor(bg))
+                    item.setForeground(QColor(fg))
+                    if r.get("disposal_reason"):
+                        item.setToolTip("سبب التكهين: " + r["disposal_reason"])
+                self.table.setItem(i, col, item)
+
+        self.hint.setText(
+            f"{len(shown)} من {len(self._rows)} حركة  •  "
+            "انقر مرتين على أي حركة لعرض تفاصيلها"
+        )
+
+    def _open_selected(self, *_args):
+        row = self.table.currentRow()
+        if 0 <= row < len(getattr(self, "_shown", [])):
+            InkViewDialog(self, record=self._shown[row]).exec()
+
+
+# ─────────────────────────────────────────────────────────────
 # Main Page
 # ─────────────────────────────────────────────────────────────
 
@@ -751,7 +1012,7 @@ class InkPage(QWidget):
         self.table.setHorizontalHeaderLabels([
             "م", "التاريخ", "الفرع / المبنى / القسم",
             "المكتب", "العدد", "تاريخ التسليم",
-            "الملاحظات", "عرض", "أدوات",
+            "الملاحظات", "عرض / سجل", "أدوات",
         ])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -770,6 +1031,8 @@ class InkPage(QWidget):
         # عمود أيقونات الإجراءات بعرض ثابت ومضغوط.
         h.setSectionResizeMode(8, QHeaderView.Fixed)
         h.resizeSection(8, 96)
+
+        self.table.doubleClicked.connect(self._row_double_clicked)
 
         layout.addWidget(self.table)
 
@@ -883,6 +1146,12 @@ class InkPage(QWidget):
                 padding: 3px 10px; font-size: 11px; font-weight: 700;
             }
             QPushButton#viewBtn:hover { background: #dcfce7; }
+            QPushButton#histBtn {
+                background: #ecfeff; color: #0e7490;
+                border: 1px solid #a5f3fc; border-radius: 7px;
+                padding: 3px 10px; font-size: 11px; font-weight: 700;
+            }
+            QPushButton#histBtn:hover { background: #cffafe; }
             QPushButton#editBtn {
                 background: #eff6ff;
                 border: 1px solid #bfdbfe;
@@ -1228,6 +1497,9 @@ class InkPage(QWidget):
             self.table.insertRow(i)
 
             row_dict = dict(r.items())
+            if i == 0:
+                self._current_rows = []
+            self._current_rows.append(row_dict)
 
             # م
             sn = QTableWidgetItem(str(r["serial_number"]))
@@ -1279,7 +1551,21 @@ class InkPage(QWidget):
             btn_view.clicked.connect(
                 lambda checked=False, rd=row_dict: self._view_record(rd)
             )
-            self.table.setCellWidget(i, 7, self._wrap(btn_view))
+            btn_hist = QPushButton("السجل")
+            btn_hist.setObjectName("histBtn")
+            btn_hist.setCursor(Qt.PointingHandCursor)
+            btn_hist.setToolTip("السجل التاريخي للأحبار لنفس الوحدة / المكتب")
+            btn_hist.clicked.connect(
+                lambda checked=False, rd=row_dict: self._show_history(rd)
+            )
+
+            cell = QWidget()
+            cl = QHBoxLayout(cell)
+            cl.setContentsMargins(4, 2, 4, 2)
+            cl.setSpacing(6)
+            cl.addWidget(btn_view)
+            cl.addWidget(btn_hist)
+            self.table.setCellWidget(i, 7, cell)
 
             # أدوات: أيقونات فقط لتفادي قص النصوص داخل الجدول.
             tools_widget = QWidget()
@@ -1429,6 +1715,21 @@ class InkPage(QWidget):
     def _view_record(self, record):
         dlg = InkViewDialog(self, record=record)
         dlg.exec()
+
+    def _row_double_clicked(self, index):
+        serial_item = self.table.item(index.row(), 0)
+        if not serial_item:
+            return
+        for rd in getattr(self, "_current_rows", []):
+            if str(rd.get("serial_number")) == serial_item.text():
+                self._show_history(rd)
+                return
+
+    def _show_history(self, record):
+        if not record.get("org_unit_id"):
+            QMessageBox.information(self, "تنبيه", "هذا السجل غير مرتبط بوحدة.")
+            return
+        InkHistoryDialog(self, record=record).exec()
 
     def _edit_record(self, record):
         if not self._has_perm("ink.edit"):

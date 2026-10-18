@@ -674,7 +674,7 @@ class DashboardPage(QWidget):
             "ali": {"title": "بشمهندس", "name": "علي"},
             "m_adel": {"title": "بشمهندس", "name": "محمد عادل"},
             "m_samir": {"title": "رقيب أول", "name": "محمد سمير"},
-            "a_galal": {"title": "عريف", "name": "أحمد جلال"},
+            "a_galal": {"title": "شاويش", "name": "أحمد جلال"},
             "m_rashad": {"title": "بشمهندس", "name": "مصطفي رشاد"},
             "علي سعودي": {"title": "بشمهندس", "name": "علي سعودي"},
             "علي السعودى": {"title": "بشمهندس", "name": "علي سعودي"},

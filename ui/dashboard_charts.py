@@ -155,14 +155,14 @@ class DonutChart(_AnimatedChart):
         # الرقم في المنتصف
         total = int(round(sum(values)))
         center = self._center_text if self._center_text is not None else str(total)
-        self._font(painter, side * 0.22, True)
+        self._font(painter, side * 0.15, True)
         painter.setPen(TEXT_DARK)
         painter.drawText(
             QRectF(rect.x(), rect.y() + rect.height() * 0.22, rect.width(), rect.height() * 0.32),
             Qt.AlignCenter,
             center,
         )
-        self._font(painter, 11, False)
+        self._font(painter, 13, False)
         painter.setPen(TEXT_MUTED)
         painter.drawText(
             QRectF(rect.x(), rect.y() + rect.height() * 0.52, rect.width(), rect.height() * 0.2),

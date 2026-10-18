@@ -1,6 +1,7 @@
 import os
 import sys
 
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QPixmap
 from PySide6.QtWidgets import (
@@ -17,8 +18,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from database import get_connection
+
+
 from database import initialize_database, write_audit_log
 from ui.arabic_translator import setup_arabic_localization
+from ui.cameras import CamerasPage
 from ui.dashboard_page import DashboardPage
 from ui.devices_page import DevicesPage
 from ui.faults_page import FaultsPage
@@ -224,6 +229,7 @@ class MainWindow(QMainWindow):
         self.btn_faults = self.create_nav_button("", "الأعطال")
         self.btn_spare_parts = self.create_nav_button("", "قطع الغيار")
         self.btn_ink = self.create_nav_button("", "الأحبار")
+        self.btn_cameras = self.create_nav_button("", "الكاميرات")
 
         for button in (
             self.btn_home,
@@ -231,6 +237,7 @@ class MainWindow(QMainWindow):
             self.btn_faults,
             self.btn_spare_parts,
             self.btn_ink,
+            self.btn_cameras,
         ):
             nav_layout.addWidget(button)
 
@@ -281,6 +288,7 @@ class MainWindow(QMainWindow):
             self.btn_logs,
             self.btn_ink,
             self.btn_org_structure,
+            self.btn_cameras,
         ]
 
         sidebar_layout.addWidget(nav_container)
@@ -500,6 +508,7 @@ class MainWindow(QMainWindow):
         self.logs_page = LogsPage(self.current_user)
         self.ink_page = InkPage(self.current_user)
         self.org_structure_page = OrgStructurePage(self.current_user)
+        self.cameras_page = CamerasPage(self.current_user)
 
         pages = [
             self.home_page,
@@ -511,6 +520,7 @@ class MainWindow(QMainWindow):
             self.logs_page,
             self.ink_page,
             self.org_structure_page,
+            self.cameras_page,
         ]
 
         for page in pages:
@@ -549,6 +559,7 @@ class MainWindow(QMainWindow):
         self.btn_faults.setVisible(True)
         self.btn_spare_parts.setVisible(True)
         self.btn_ink.setVisible(True)
+        self.btn_cameras.setVisible(True)
         self.btn_org_structure.setVisible(True)
         self.btn_logs.setVisible(True)
 
@@ -570,6 +581,10 @@ class MainWindow(QMainWindow):
 
         self.btn_ink.setEnabled(
             self.has_permission("ink.view")
+        )
+
+        self.btn_cameras.setEnabled(
+            self.has_permission("cameras.view")
         )
 
         self.btn_org_structure.setEnabled(
@@ -644,6 +659,7 @@ class MainWindow(QMainWindow):
             (self.logs_page, ("load_logs",)),
             (self.ink_page, ("load_transactions",)),
             (self.org_structure_page, ("load_units",)),
+            (self.cameras_page, ("refresh_all",)),
         )
 
         for page, method_names in pages_to_refresh:
