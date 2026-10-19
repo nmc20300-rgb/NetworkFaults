@@ -32,11 +32,11 @@ MISSED_SWEEP_DAYS = 31             # أقصى رجوع لتسجيل المواع
 HISTORY_DAYS = 30
 
 # الأدوار المسموح لها تأكيد التبديل (placeholder: اربطها بنظام الصلاحيات عندك)
-AC_CONFIRM_ROLES = frozenset({"SUB_ADMIN"})
+AC_CONFIRM_ROLES = frozenset({"SUB_ADMIN", "SOLDIER"})
 AC_CONFIRM_PERMISSION = "ac_confirm"
 
 # الأدوار اللي بيظهر لها كارت التكييف في الداشبورد (السوبر أدمن ملوش علاقة بيه)
-AC_VISIBLE_ROLES = frozenset({"SUB_ADMIN"})
+AC_VISIBLE_ROLES = frozenset({"SUB_ADMIN", "SOLDIER"})
 
 # حالات السجل في قاعدة البيانات
 STATUS_PENDING = "pending"      # (محجوزة - مش بتتخزن، المعلّق بيتحسب من الوقت)
@@ -316,7 +316,7 @@ def build_alert_state(now, resolved, tracking_start=None, lookback_hours=OVERDUE
 # الصلاحيات واسم المستخدم (من المستخدم الحالي في الداشبورد، بدون تغيير منطق الصلاحيات)
 # =============================================================
 def can_see_ac_alert(user):
-    """الكارت يظهر للـ Sub Admin فقط (السوبر أدمن ملوش علاقة بالتكييفات)."""
+    """الكارت يظهر للـ Sub Admin والجنود (السوبر أدمن ملوش علاقة بالتكييفات)."""
     role_code = str((user or {}).get("role_code", "") or "").strip().upper()
     return role_code in AC_VISIBLE_ROLES
 

@@ -2,6 +2,12 @@
 ui/ink_page.py
 ==============
 شاشة الأحبار - نظام إدارة حركات الأحبار
+
+ملاحظة: يتطلب عمود form_2at_delivered في جدول dbo.ink_transactions:
+
+    ALTER TABLE dbo.ink_transactions
+    ADD form_2at_delivered BIT NOT NULL
+        CONSTRAINT DF_ink_form2at DEFAULT 0;
 """
 
 import datetime
@@ -54,6 +60,7 @@ def ink_audit_data(record):
     keys = (
         "id", "serial_number", "trans_date", "org_unit_id", "unit_name",
         "office_id", "office_name", "quantity", "delivery_date", "status",
+        "form_2at_delivered",
         "disposal_reason", "created_by", "created_at", "updated_at",
     )
     snapshot = {}
@@ -265,7 +272,7 @@ class InkTransactionDialog(QDialog):
         is_edit = record is not None
         self.setWindowTitle("تعديل سجل أحبار" if is_edit else "إضافة سجل أحبار جديد")
         self.setMinimumWidth(520)
-        self.setMinimumHeight(600)
+        self.setMinimumHeight(640)
         self.setLayoutDirection(Qt.RightToLeft)
 
         root = QVBoxLayout(self)
@@ -366,6 +373,13 @@ class InkTransactionDialog(QDialog):
             self.status_combo.addItem(s)
         self.status_combo.currentTextChanged.connect(self._on_status_changed)
         form.addRow("الملاحظات *:", self.status_combo)
+
+        # ── نموذج 2 أت (إذن ورشة) ────────────────────────────
+        self.form_2at_check = QCheckBox(
+            "تم تسليم نموذج 2 أت (إذن ورشة) مع الحبارة"
+        )
+        self.form_2at_check.setMinimumHeight(36)
+        form.addRow("نموذج 2 أت:", self.form_2at_check)
 
         # ── سبب التكهين ──────────────────────────────────────
         self.disposal_lbl = QLabel("سبب التكهين *:")
@@ -491,6 +505,9 @@ class InkTransactionDialog(QDialog):
         if idx >= 0:
             self.status_combo.setCurrentIndex(idx)
 
+        # نموذج 2 أت
+        self.form_2at_check.setChecked(bool(r.get("form_2at_delivered")))
+
         # Disposal reason
         self.disposal_input.setPlainText(r.get("disposal_reason") or "")
 
@@ -536,6 +553,7 @@ class InkTransactionDialog(QDialog):
             "quantity":       self.quantity_spin.value(),
             "delivery_date":  f"{d_date.year()}-{d_date.month():02d}-{d_date.day():02d}",
             "status":         status,
+            "form_2at_delivered": 1 if self.form_2at_check.isChecked() else 0,
             "disposal_reason": (
                 self.disposal_input.toPlainText().strip()
                 if status == "تكهين" else None
@@ -583,6 +601,8 @@ class InkViewDialog(QDialog):
                 ("العدد",                   str(record.get("quantity", ""))),
                 ("تاريخ التسليم",           str(record.get("delivery_date") or "—")),
                 ("الملاحظات",               str(record.get("status", ""))),
+                ("نموذج 2 أت (إذن ورشة)",
+                 "تم التسليم" if record.get("form_2at_delivered") else "لم يُسلَّم"),
                 ("سبب التكهين",             str(record.get("disposal_reason") or "—")),
                 ("بواسطة",                  str(record.get("created_by_name") or "—")),
                 ("تاريخ الإنشاء",           str(record.get("created_at", ""))[:19]),
@@ -799,7 +819,7 @@ class InkHistoryDialog(QDialog):
                     it.org_unit_id, ou.name AS unit_name,
                     it.office_id, ofc.name AS office_name,
                     it.quantity, it.delivery_date,
-                    it.status, it.disposal_reason,
+                    it.status, it.form_2at_delivered, it.disposal_reason,
                     it.created_by, u.full_name AS created_by_name,
                     it.created_at, it.updated_at
                 FROM dbo.ink_transactions it
@@ -1007,12 +1027,15 @@ class InkPage(QWidget):
         layout.addWidget(filter_card)
 
         # ── Table ─────────────────────────────────────────────
+        # الأعمدة:
+        # 0 م | 1 التاريخ | 2 الوحدة | 3 المكتب | 4 العدد | 5 تاريخ التسليم
+        # 6 الملاحظات | 7 نموذج 2 أت | 8 عرض / سجل | 9 أدوات
         self.table = QTableWidget()
-        self.table.setColumnCount(9)
+        self.table.setColumnCount(10)
         self.table.setHorizontalHeaderLabels([
             "م", "التاريخ", "الفرع / المبنى / القسم",
             "المكتب", "العدد", "تاريخ التسليم",
-            "الملاحظات", "عرض / سجل", "أدوات",
+            "الملاحظات", "نموذج 2 أت", "عرض / سجل", "أدوات",
         ])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -1028,9 +1051,10 @@ class InkPage(QWidget):
         h.setSectionResizeMode(5, QHeaderView.ResizeToContents)
         h.setSectionResizeMode(6, QHeaderView.ResizeToContents)
         h.setSectionResizeMode(7, QHeaderView.ResizeToContents)
+        h.setSectionResizeMode(8, QHeaderView.ResizeToContents)
         # عمود أيقونات الإجراءات بعرض ثابت ومضغوط.
-        h.setSectionResizeMode(8, QHeaderView.Fixed)
-        h.resizeSection(8, 96)
+        h.setSectionResizeMode(9, QHeaderView.Fixed)
+        h.resizeSection(9, 96)
 
         self.table.doubleClicked.connect(self._row_double_clicked)
 
@@ -1293,7 +1317,7 @@ class InkPage(QWidget):
                 it.org_unit_id, ou.name AS unit_name,
                 it.office_id, ofc.name AS office_name,
                 it.quantity, it.delivery_date,
-                it.status, it.disposal_reason,
+                it.status, it.form_2at_delivered, it.disposal_reason,
                 it.created_by, u.full_name AS created_by_name,
                 it.created_at, it.updated_at
             FROM dbo.ink_transactions it
@@ -1382,14 +1406,16 @@ class InkPage(QWidget):
             sheet.sheet_view.showGridLines = False
             sheet.sheet_view.zoomScale = 90
 
-            sheet.merge_cells("A1:G1")
+            last_col = "H"
+
+            sheet.merge_cells(f"A1:{last_col}1")
             title = sheet["A1"]
             title.value = "سجل حركات الأحبار"
             title.font = Font(name="Arial", size=16, bold=True, color="FFFFFF")
             title.fill = PatternFill("solid", fgColor="10263D")
             title.alignment = Alignment(horizontal="center", vertical="center")
 
-            sheet.merge_cells("A2:G2")
+            sheet.merge_cells(f"A2:{last_col}2")
             summary = sheet["A2"]
             summary.value = f"إجمالي الحركات المطابقة للفلاتر: {len(rows)}"
             summary.font = Font(name="Arial", size=11, bold=True, color="64748B")
@@ -1397,7 +1423,7 @@ class InkPage(QWidget):
 
             headers = [
                 "م", "التاريخ", "الفرع / المبنى / القسم", "المكتب",
-                "العدد", "تاريخ التسليم", "الملاحظات",
+                "العدد", "تاريخ التسليم", "الملاحظات", "نموذج 2 أت",
             ]
             header_row = 3
             for column, value in enumerate(headers, 1):
@@ -1410,6 +1436,7 @@ class InkPage(QWidget):
             for row_index, record in enumerate(rows, header_row + 1):
                 trans_date = record["trans_date"]
                 delivery_date = record["delivery_date"]
+                form_2at = bool(record["form_2at_delivered"])
                 values = [
                     record["serial_number"],
                     trans_date.strftime("%Y-%m-%d") if hasattr(trans_date, "strftime") else str(trans_date)[:10],
@@ -1418,6 +1445,7 @@ class InkPage(QWidget):
                     record["quantity"],
                     delivery_date.strftime("%Y-%m-%d") if delivery_date and hasattr(delivery_date, "strftime") else (str(delivery_date)[:10] if delivery_date else "—"),
                     record["status"] or "",
+                    "تم التسليم" if form_2at else "لم يُسلَّم",
                 ]
                 for column, value in enumerate(values, 1):
                     cell = sheet.cell(row_index, column, value)
@@ -1434,15 +1462,22 @@ class InkPage(QWidget):
                         )
                         cell.fill = PatternFill("solid", fgColor=bg.lstrip("#"))
                         cell.font = Font(name="Arial", size=10, bold=True, color=fg.lstrip("#"))
+                    elif column == 8:
+                        if form_2at:
+                            cell.fill = PatternFill("solid", fgColor="ECFDF5")
+                            cell.font = Font(name="Arial", size=10, bold=True, color="065F46")
+                        else:
+                            cell.fill = PatternFill("solid", fgColor="FEF2F2")
+                            cell.font = Font(name="Arial", size=10, bold=True, color="991B1B")
                 sheet.row_dimensions[row_index].height = 23
 
-            for column, width in enumerate((10, 15, 32, 28, 12, 17, 24), 1):
+            for column, width in enumerate((10, 15, 32, 28, 12, 17, 24, 16), 1):
                 sheet.column_dimensions[chr(64 + column)].width = width
             sheet.row_dimensions[1].height = 32
             sheet.row_dimensions[2].height = 24
             sheet.row_dimensions[header_row].height = 30
             sheet.freeze_panes = "A4"
-            sheet.auto_filter.ref = f"A{header_row}:G{header_row + len(rows)}"
+            sheet.auto_filter.ref = f"A{header_row}:{last_col}{header_row + len(rows)}"
             sheet.page_setup.orientation = "landscape"
             sheet.page_setup.paperSize = sheet.PAPERSIZE_A4
             sheet.page_setup.fitToWidth = 1
@@ -1492,13 +1527,12 @@ class InkPage(QWidget):
 
     def _display_rows(self, rows):
         self.table.setRowCount(0)
+        self._current_rows = []
 
         for i, r in enumerate(rows):
             self.table.insertRow(i)
 
             row_dict = dict(r.items())
-            if i == 0:
-                self._current_rows = []
             self._current_rows.append(row_dict)
 
             # م
@@ -1544,6 +1578,19 @@ class InkPage(QWidget):
             status_item.setForeground(QColor(fg))
             self.table.setItem(i, 6, status_item)
 
+            # نموذج 2 أت
+            has_form = bool(r["form_2at_delivered"])
+            form_item = QTableWidgetItem("✔ تم" if has_form else "✘ لا")
+            form_item.setTextAlignment(Qt.AlignCenter)
+            form_item.setBackground(QColor("#ecfdf5" if has_form else "#fef2f2"))
+            form_item.setForeground(QColor("#065f46" if has_form else "#991b1b"))
+            form_item.setToolTip(
+                "تم تسليم نموذج 2 أت (إذن ورشة) مع الحبارة"
+                if has_form else
+                "لم يتم تسليم نموذج 2 أت (إذن ورشة)"
+            )
+            self.table.setItem(i, 7, form_item)
+
             # زر عرض
             btn_view = QPushButton("عرض")
             btn_view.setObjectName("viewBtn")
@@ -1565,7 +1612,7 @@ class InkPage(QWidget):
             cl.setSpacing(6)
             cl.addWidget(btn_view)
             cl.addWidget(btn_hist)
-            self.table.setCellWidget(i, 7, cell)
+            self.table.setCellWidget(i, 8, cell)
 
             # أدوات: أيقونات فقط لتفادي قص النصوص داخل الجدول.
             tools_widget = QWidget()
@@ -1604,7 +1651,7 @@ class InkPage(QWidget):
             btn_del.setVisible(self._has_perm("ink.delete"))
             tl.addWidget(btn_del)
 
-            self.table.setCellWidget(i, 8, tools_widget)
+            self.table.setCellWidget(i, 9, tools_widget)
             self.table.setRowHeight(i, 58)
 
         # Pagination labels
@@ -1666,9 +1713,9 @@ class InkPage(QWidget):
                 """
                 INSERT INTO dbo.ink_transactions
                 (serial_number, trans_date, org_unit_id, office_id,
-                 quantity, delivery_date, status, disposal_reason,
-                 created_by, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, SYSDATETIME(), SYSDATETIME())
+                 quantity, delivery_date, status, form_2at_delivered,
+                 disposal_reason, created_by, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, SYSDATETIME(), SYSDATETIME())
                 """,
                 (
                     serial,
@@ -1678,6 +1725,7 @@ class InkPage(QWidget):
                     data["quantity"],
                     data["delivery_date"],
                     data["status"],
+                    data["form_2at_delivered"],
                     data["disposal_reason"],
                     self.current_user.get("id"),
                 )
@@ -1757,14 +1805,15 @@ class InkPage(QWidget):
             cursor.execute(
                 """
                 UPDATE dbo.ink_transactions
-                SET trans_date     = ?,
-                    org_unit_id    = ?,
-                    office_id      = ?,
-                    quantity       = ?,
-                    delivery_date  = ?,
-                    status         = ?,
-                    disposal_reason = ?,
-                    updated_at     = SYSDATETIME()
+                SET trans_date         = ?,
+                    org_unit_id        = ?,
+                    office_id          = ?,
+                    quantity           = ?,
+                    delivery_date      = ?,
+                    status             = ?,
+                    form_2at_delivered = ?,
+                    disposal_reason    = ?,
+                    updated_at         = SYSDATETIME()
                 WHERE id = ?
                 """,
                 (
@@ -1774,6 +1823,7 @@ class InkPage(QWidget):
                     data["quantity"],
                     data["delivery_date"],
                     data["status"],
+                    data["form_2at_delivered"],
                     data["disposal_reason"],
                     record["id"],
                 )

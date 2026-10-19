@@ -816,9 +816,17 @@ class DashboardPage(QWidget):
             cards_layout.setColumnStretch(col, 1)
         main_column.addLayout(cards_layout)
 
-        # ---------- تنبيه تبديل التكييف (للـ Sub Admin فقط، ارتفاع ثابت) ----------
+        # ---------- تنبيه تبديل التكييف (Sub Admin + الجنود، ارتفاع ثابت) ----------
         # السوبر أدمن ملوش علاقة بالتكييفات: الكارت مش بيتنشأ أصلًا (لا Timers ولا استعلامات).
         self.ac_card = None
+
+        # سطر تشخيص مؤقت: امسحه بعد ما الكارت يظهر للجنود
+        print(
+            "AC DEBUG:",
+            "role_code =", repr(self.current_user.get("role_code")),
+            "| can_see =", can_see_ac_alert(self.current_user),
+        )
+
         if can_see_ac_alert(self.current_user):
             self.ac_card = AcAlertCard(self.current_user)
             main_column.addWidget(self.ac_card)

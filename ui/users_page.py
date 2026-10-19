@@ -36,36 +36,21 @@ class UserDialog(QDialog):
         self.change_password = change_password
 
         if user_data is None:
-            self.setWindowTitle(
-                "إضافة مستخدم"
-            )
+            self.setWindowTitle("إضافة مستخدم")
 
         elif change_password:
-            self.setWindowTitle(
-                "تغيير كلمة المرور"
-            )
+            self.setWindowTitle("تغيير كلمة المرور")
 
         else:
-            self.setWindowTitle(
-                "تعديل المستخدم"
-            )
+            self.setWindowTitle("تعديل المستخدم")
 
-        self.resize(
-            450,
-            330
-        )
+        self.resize(450, 330)
 
-        self.setLayoutDirection(
-            Qt.RightToLeft
-        )
+        self.setLayoutDirection(Qt.RightToLeft)
 
-        layout = QFormLayout(
-            self
-        )
+        layout = QFormLayout(self)
 
-        layout.setSpacing(
-            12
-        )
+        layout.setSpacing(12)
 
         # =================================================
         # Username
@@ -73,26 +58,15 @@ class UserDialog(QDialog):
 
         self.username = QLineEdit()
 
-        self.username.setPlaceholderText(
-            "اسم المستخدم"
-        )
+        self.username.setPlaceholderText("اسم المستخدم")
 
         if user_data:
-            self.username.setText(
-                str(
-                    user_data["username"]
-                )
-            )
+            self.username.setText(str(user_data["username"]))
 
         if change_password:
-            self.username.setReadOnly(
-                True
-            )
+            self.username.setReadOnly(True)
 
-        layout.addRow(
-            "اسم المستخدم:",
-            self.username
-        )
+        layout.addRow("اسم المستخدم:", self.username)
 
         # =================================================
         # Full Name
@@ -100,65 +74,37 @@ class UserDialog(QDialog):
 
         self.full_name = QLineEdit()
 
-        self.full_name.setPlaceholderText(
-            "الاسم الكامل"
-        )
+        self.full_name.setPlaceholderText("الاسم الكامل")
 
         if user_data:
-            self.full_name.setText(
-                str(
-                    user_data["full_name"] or ""
-                )
-            )
+            self.full_name.setText(str(user_data["full_name"] or ""))
 
         if change_password:
-            self.full_name.setVisible(
-                False
-            )
+            self.full_name.setVisible(False)
 
-        layout.addRow(
-            "الاسم الكامل:",
-            self.full_name
-        )
+        layout.addRow("الاسم الكامل:", self.full_name)
 
         # =================================================
-        # Role
+        # Role  (يتم تحميلها من جدول roles)
         # =================================================
 
         self.role = QComboBox()
 
-        self.role.addItem(
-            "ADMIN",
-            2
-        )
-
-        self.role.addItem(
-            "SUB ADMIN",
-            3
-        )
+        self.load_roles()
 
         if user_data and not change_password:
 
             role_id = user_data["role_id"]
 
-            index = self.role.findData(
-                role_id
-            )
+            index = self.role.findData(role_id)
 
             if index >= 0:
-                self.role.setCurrentIndex(
-                    index
-                )
+                self.role.setCurrentIndex(index)
 
         if change_password:
-            self.role.setVisible(
-                False
-            )
+            self.role.setVisible(False)
 
-        layout.addRow(
-            "الدور:",
-            self.role
-        )
+        layout.addRow("الدور:", self.role)
 
         # =================================================
         # Password
@@ -166,18 +112,11 @@ class UserDialog(QDialog):
 
         self.password = QLineEdit()
 
-        self.password.setEchoMode(
-            QLineEdit.Password
-        )
+        self.password.setEchoMode(QLineEdit.Password)
 
-        self.password.setPlaceholderText(
-            "كلمة المرور"
-        )
+        self.password.setPlaceholderText("كلمة المرور")
 
-        layout.addRow(
-            "كلمة المرور:",
-            self.password
-        )
+        layout.addRow("كلمة المرور:", self.password)
 
         # =================================================
         # Password Confirmation
@@ -185,18 +124,11 @@ class UserDialog(QDialog):
 
         self.password_confirm = QLineEdit()
 
-        self.password_confirm.setEchoMode(
-            QLineEdit.Password
-        )
+        self.password_confirm.setEchoMode(QLineEdit.Password)
 
-        self.password_confirm.setPlaceholderText(
-            "تأكيد كلمة المرور"
-        )
+        self.password_confirm.setPlaceholderText("تأكيد كلمة المرور")
 
-        layout.addRow(
-            "تأكيد كلمة المرور:",
-            self.password_confirm
-        )
+        layout.addRow("تأكيد كلمة المرور:", self.password_confirm)
 
         # =================================================
         # Buttons
@@ -207,17 +139,67 @@ class UserDialog(QDialog):
             | QDialogButtonBox.Cancel
         )
 
-        buttons.accepted.connect(
-            self.validate_and_accept
-        )
+        buttons.accepted.connect(self.validate_and_accept)
 
-        buttons.rejected.connect(
-            self.reject
-        )
+        buttons.rejected.connect(self.reject)
 
-        layout.addRow(
-            buttons
-        )
+        layout.addRow(buttons)
+
+    # =====================================================
+    # Roles
+    # =====================================================
+
+    def load_roles(self):
+        """
+        تحميل الأدوار الفعالة من جدول roles.
+
+        SUPER_ADMIN مستبعد لأنه دور أساسي محمي
+        ولا يتم إنشاء مستخدمين به من هذه الشاشة.
+        """
+
+        connection = None
+
+        try:
+
+            connection = get_connection()
+
+            cursor = connection.cursor()
+
+            cursor.execute(
+                """
+                SELECT id, role_name
+                FROM dbo.roles
+                WHERE is_active = 1
+                  AND UPPER(role_code) <> 'SUPER_ADMIN'
+                ORDER BY id
+                """
+            )
+
+            for row in cursor.fetchall():
+                self.role.addItem(
+                    row["role_name"],
+                    int(row["id"]),
+                )
+
+        except Exception as e:
+
+            QMessageBox.critical(
+                self,
+                "خطأ",
+                f"تعذر تحميل الأدوار:\n{e}"
+            )
+
+        finally:
+
+            if connection:
+                try:
+                    connection.close()
+                except Exception:
+                    pass
+
+    # =====================================================
+    # Validation
+    # =====================================================
 
     def validate_and_accept(self):
 
@@ -234,6 +216,14 @@ class UserDialog(QDialog):
                     self,
                     "تنبيه",
                     "اكتب اسم المستخدم."
+                )
+                return
+
+            if self.role.currentData() is None:
+                QMessageBox.warning(
+                    self,
+                    "تنبيه",
+                    "اختر الدور."
                 )
                 return
 
@@ -274,18 +264,11 @@ class UsersPage(QWidget):
         parent=None,
     ):
 
-        super().__init__(
-            parent
-        )
+        super().__init__(parent)
 
-        self.current_user = (
-            current_user
-            or {}
-        )
+        self.current_user = current_user or {}
 
-        self.setLayoutDirection(
-            Qt.RightToLeft
-        )
+        self.setLayoutDirection(Qt.RightToLeft)
 
         self.build_ui()
 
@@ -297,20 +280,11 @@ class UsersPage(QWidget):
 
     def build_ui(self):
 
-        layout = QVBoxLayout(
-            self
-        )
+        layout = QVBoxLayout(self)
 
-        layout.setContentsMargins(
-            24,
-            24,
-            24,
-            24
-        )
+        layout.setContentsMargins(24, 24, 24, 24)
 
-        layout.setSpacing(
-            15
-        )
+        layout.setSpacing(15)
 
         # -------------------------------------------------
         # Header
@@ -320,9 +294,7 @@ class UsersPage(QWidget):
 
         title_box = QVBoxLayout()
 
-        title = QLabel(
-            "إدارة المستخدمين"
-        )
+        title = QLabel("إدارة المستخدمين")
 
         title.setStyleSheet(
             """
@@ -332,9 +304,7 @@ class UsersPage(QWidget):
             """
         )
 
-        subtitle = QLabel(
-            "إضافة وتعديل وتعطيل مستخدمي النظام"
-        )
+        subtitle = QLabel("إضافة وتعديل وتعطيل مستخدمي النظام")
 
         subtitle.setStyleSheet(
             """
@@ -343,27 +313,17 @@ class UsersPage(QWidget):
             """
         )
 
-        title_box.addWidget(
-            title
-        )
+        title_box.addWidget(title)
 
-        title_box.addWidget(
-            subtitle
-        )
+        title_box.addWidget(subtitle)
 
-        header.addLayout(
-            title_box
-        )
+        header.addLayout(title_box)
 
         header.addStretch()
 
-        self.btn_add = QPushButton(
-            "＋ إضافة مستخدم"
-        )
+        self.btn_add = QPushButton("＋ إضافة مستخدم")
 
-        self.btn_add.setMinimumHeight(
-            42
-        )
+        self.btn_add.setMinimumHeight(42)
 
         self.btn_add.setStyleSheet(
             """
@@ -387,17 +347,11 @@ class UsersPage(QWidget):
             """
         )
 
-        self.btn_add.clicked.connect(
-            self.add_user
-        )
+        self.btn_add.clicked.connect(self.add_user)
 
-        header.addWidget(
-            self.btn_add
-        )
+        header.addWidget(self.btn_add)
 
-        layout.addLayout(
-            header
-        )
+        layout.addLayout(header)
 
         # -------------------------------------------------
         # Action buttons
@@ -405,21 +359,13 @@ class UsersPage(QWidget):
 
         actions = QHBoxLayout()
 
-        self.btn_edit = QPushButton(
-            "✏ تعديل"
-        )
+        self.btn_edit = QPushButton("✏ تعديل")
 
-        self.btn_password = QPushButton(
-            "🔑 تغيير كلمة المرور"
-        )
+        self.btn_password = QPushButton("🔑 تغيير كلمة المرور")
 
-        self.btn_toggle = QPushButton(
-            "⏸ تفعيل / تعطيل"
-        )
+        self.btn_toggle = QPushButton("⏸ تفعيل / تعطيل")
 
-        self.btn_delete = QPushButton(
-            "🗑 حذف"
-        )
+        self.btn_delete = QPushButton("🗑 حذف")
 
         for button in (
             self.btn_edit,
@@ -428,35 +374,21 @@ class UsersPage(QWidget):
             self.btn_delete,
         ):
 
-            button.setMinimumHeight(
-                38
-            )
+            button.setMinimumHeight(38)
 
-            actions.addWidget(
-                button
-            )
+            actions.addWidget(button)
 
         actions.addStretch()
 
-        self.btn_edit.clicked.connect(
-            self.edit_user
-        )
+        self.btn_edit.clicked.connect(self.edit_user)
 
-        self.btn_password.clicked.connect(
-            self.change_password
-        )
+        self.btn_password.clicked.connect(self.change_password)
 
-        self.btn_toggle.clicked.connect(
-            self.toggle_user
-        )
+        self.btn_toggle.clicked.connect(self.toggle_user)
 
-        self.btn_delete.clicked.connect(
-            self.delete_user
-        )
+        self.btn_delete.clicked.connect(self.delete_user)
 
-        layout.addLayout(
-            actions
-        )
+        layout.addLayout(actions)
 
         # -------------------------------------------------
         # Table
@@ -464,9 +396,7 @@ class UsersPage(QWidget):
 
         self.table = QTableWidget()
 
-        self.table.setColumnCount(
-            6
-        )
+        self.table.setColumnCount(6)
 
         self.table.setHorizontalHeaderLabels(
             [
@@ -479,57 +409,29 @@ class UsersPage(QWidget):
             ]
         )
 
-        self.table.setSelectionBehavior(
-            QTableWidget.SelectRows
-        )
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
 
-        self.table.setSelectionMode(
-            QTableWidget.SingleSelection
-        )
+        self.table.setSelectionMode(QTableWidget.SingleSelection)
 
-        self.table.setEditTriggers(
-            QTableWidget.NoEditTriggers
-        )
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
 
-        self.table.verticalHeader().setVisible(
-            False
-        )
+        self.table.verticalHeader().setVisible(False)
 
         header = self.table.horizontalHeader()
 
-        header.setSectionResizeMode(
-            0,
-            QHeaderView.ResizeToContents
-        )
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
 
-        header.setSectionResizeMode(
-            1,
-            QHeaderView.ResizeToContents
-        )
+        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
 
-        header.setSectionResizeMode(
-            2,
-            QHeaderView.Stretch
-        )
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
 
-        header.setSectionResizeMode(
-            3,
-            QHeaderView.ResizeToContents
-        )
+        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
 
-        header.setSectionResizeMode(
-            4,
-            QHeaderView.ResizeToContents
-        )
+        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
 
-        header.setSectionResizeMode(
-            5,
-            QHeaderView.ResizeToContents
-        )
+        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
 
-        layout.addWidget(
-            self.table
-        )
+        layout.addWidget(self.table)
 
         self.setStyleSheet(
             """
@@ -608,9 +510,7 @@ class UsersPage(QWidget):
 
             connection.close()
 
-            self.table.setRowCount(
-                len(rows)
-            )
+            self.table.setRowCount(len(rows))
 
             for row_index, row in enumerate(rows):
 
@@ -618,22 +518,16 @@ class UsersPage(QWidget):
                     row["id"],
                     row["username"],
                     row["full_name"] or "",
-                    row["role_code"],
-                    "نشط"
-                    if row["is_active"]
-                    else "غير نشط",
+                    row["role_name"],
+                    "نشط" if row["is_active"] else "غير نشط",
                     row["last_login"] or "",
                 ]
 
                 for column, value in enumerate(values):
 
-                    item = QTableWidgetItem(
-                        str(value)
-                    )
+                    item = QTableWidgetItem(str(value))
 
-                    item.setTextAlignment(
-                        Qt.AlignCenter
-                    )
+                    item.setTextAlignment(Qt.AlignCenter)
 
                     self.table.setItem(
                         row_index,
@@ -665,17 +559,12 @@ class UsersPage(QWidget):
             )
             return None
 
-        item = self.table.item(
-            row,
-            0
-        )
+        item = self.table.item(row, 0)
 
         if not item:
             return None
 
-        return int(
-            item.text()
-        )
+        return int(item.text())
 
     def get_selected_user(self):
 
@@ -705,9 +594,7 @@ class UsersPage(QWidget):
                     ON r.id = u.role_id
                 WHERE u.id = ?
                 """,
-                (
-                    user_id,
-                )
+                (user_id,)
             )
 
             row = cursor.fetchone()
@@ -732,9 +619,7 @@ class UsersPage(QWidget):
 
     def add_user(self):
 
-        dialog = UserDialog(
-            self
-        )
+        dialog = UserDialog(self)
 
         if dialog.exec() != QDialog.Accepted:
             return
@@ -747,9 +632,7 @@ class UsersPage(QWidget):
 
         role_id = dialog.role.currentData()
 
-        password_hash = hash_password(
-            password
-        )
+        password_hash = hash_password(password)
 
         try:
 
@@ -763,9 +646,7 @@ class UsersPage(QWidget):
                 FROM dbo.users
                 WHERE username = ?
                 """,
-                (
-                    username,
-                )
+                (username,)
             )
 
             if cursor.fetchone()[0] > 0:
@@ -950,9 +831,7 @@ class UsersPage(QWidget):
         if dialog.exec() != QDialog.Accepted:
             return
 
-        password_hash = hash_password(
-            dialog.password.text()
-        )
+        password_hash = hash_password(dialog.password.text())
 
         try:
 
@@ -1011,23 +890,16 @@ class UsersPage(QWidget):
 
             return
 
-        new_status = not bool(
-            user["is_active"]
-        )
+        new_status = not bool(user["is_active"])
 
-        action = (
-            "تفعيل"
-            if new_status
-            else "تعطيل"
-        )
+        action = "تفعيل" if new_status else "تعطيل"
 
         answer = QMessageBox.question(
             self,
             "تأكيد",
             f"هل تريد {action} المستخدم:\n"
             f"{user['username']} ؟",
-            QMessageBox.Yes
-            | QMessageBox.No,
+            QMessageBox.Yes | QMessageBox.No,
         )
 
         if answer != QMessageBox.Yes:
@@ -1091,8 +963,7 @@ class UsersPage(QWidget):
             "تأكيد الحذف",
             f"هل أنت متأكد من حذف المستخدم:\n"
             f"{user['username']} ؟",
-            QMessageBox.Yes
-            | QMessageBox.No,
+            QMessageBox.Yes | QMessageBox.No,
         )
 
         if answer != QMessageBox.Yes:
@@ -1109,9 +980,7 @@ class UsersPage(QWidget):
                 DELETE FROM dbo.user_permissions
                 WHERE user_id = ?
                 """,
-                (
-                    user["id"],
-                )
+                (user["id"],)
             )
 
             cursor.execute(
@@ -1119,9 +988,7 @@ class UsersPage(QWidget):
                 DELETE FROM dbo.users
                 WHERE id = ?
                 """,
-                (
-                    user["id"],
-                )
+                (user["id"],)
             )
 
             connection.commit()

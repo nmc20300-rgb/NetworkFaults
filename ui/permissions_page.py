@@ -77,6 +77,21 @@ class PermissionsPage(QWidget):
             ("ink.delete", "حذف سجل أحبار"),
             ("ink.org_structure.manage", "إدارة الهيكل التنظيمي"),
         ],
+
+        "الكاميرات": [
+            ("cameras.view", "عرض الكاميرات"),
+            ("cameras.add", "إضافة كاميرا"),
+            ("cameras.edit", "تعديل كاميرا"),
+            ("cameras.archive", "حذف / أرشفة كاميرا"),
+        ],
+
+        "أعطال الكاميرات": [
+            ("camera_faults.view", "عرض أعطال الكاميرات"),
+            ("camera_faults.add", "إضافة بلاغ عطل كاميرا"),
+            ("camera_faults.edit", "تعديل بلاغ عطل كاميرا"),
+            ("camera_faults.close", "إغلاق بلاغ عطل كاميرا"),
+            ("camera_reports.export", "تصدير تقارير الكاميرات"),
+        ],
     }
 
     def __init__(self, current_user=None, parent=None):
@@ -150,19 +165,10 @@ class PermissionsPage(QWidget):
             """
         )
 
+        # الأدوار يتم تحميلها من جدول roles داخل load_roles()
         self.role_combo = QComboBox()
 
         self.role_combo.setMinimumHeight(40)
-
-        self.role_combo.addItem(
-            "ADMIN",
-            2
-        )
-
-        self.role_combo.addItem(
-            "SUB ADMIN",
-            3
-        )
 
         self.role_combo.currentIndexChanged.connect(
             self.load_permissions
@@ -177,45 +183,25 @@ class PermissionsPage(QWidget):
         # Buttons
         # -----------------------------------------------------
 
-        self.btn_all = QPushButton(
-            "✓ تحديد الكل"
-        )
+        self.btn_all = QPushButton("✓ تحديد الكل")
 
-        self.btn_none = QPushButton(
-            "✕ إلغاء الكل"
-        )
+        self.btn_none = QPushButton("✕ إلغاء الكل")
 
-        self.btn_save = QPushButton(
-            "💾 حفظ الصلاحيات"
-        )
+        self.btn_save = QPushButton("💾 حفظ الصلاحيات")
 
-        self.btn_save.setObjectName(
-            "primaryButton"
-        )
+        self.btn_save.setObjectName("primaryButton")
 
-        self.btn_all.clicked.connect(
-            self.select_all
-        )
+        self.btn_all.clicked.connect(self.select_all)
 
-        self.btn_none.clicked.connect(
-            self.select_none
-        )
+        self.btn_none.clicked.connect(self.select_none)
 
-        self.btn_save.clicked.connect(
-            self.save_permissions
-        )
+        self.btn_save.clicked.connect(self.save_permissions)
 
-        role_row.addWidget(
-            self.btn_all
-        )
+        role_row.addWidget(self.btn_all)
 
-        role_row.addWidget(
-            self.btn_none
-        )
+        role_row.addWidget(self.btn_none)
 
-        role_row.addWidget(
-            self.btn_save
-        )
+        role_row.addWidget(self.btn_save)
 
         layout.addLayout(role_row)
 
@@ -235,42 +221,23 @@ class PermissionsPage(QWidget):
             ]
         )
 
-        self.table.setSelectionBehavior(
-            QTableWidget.SelectRows
-        )
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
 
-        self.table.setEditTriggers(
-            QTableWidget.NoEditTriggers
-        )
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
 
-        self.table.verticalHeader().setVisible(
-            False
-        )
+        self.table.verticalHeader().setVisible(False)
 
-        self.table.setAlternatingRowColors(
-            True
-        )
+        self.table.setAlternatingRowColors(True)
 
         header = self.table.horizontalHeader()
 
-        header.setSectionResizeMode(
-            0,
-            QHeaderView.ResizeToContents
-        )
+        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
 
-        header.setSectionResizeMode(
-            1,
-            QHeaderView.Stretch
-        )
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
 
-        header.setSectionResizeMode(
-            2,
-            QHeaderView.ResizeToContents
-        )
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
 
-        layout.addWidget(
-            self.table
-        )
+        layout.addWidget(self.table)
 
         # -----------------------------------------------------
         # Style
@@ -344,10 +311,72 @@ class PermissionsPage(QWidget):
     # =========================================================
 
     def load_roles(self):
+        """
+        تحميل الأدوار الفعالة من جدول roles.
 
-        self.role_combo.setCurrentIndex(0)
+        SUPER_ADMIN مستبعد لأنه يحصل على كل الصلاحيات
+        تلقائيًا (راجع get_user_permissions في auth.py).
+        """
 
-        self.load_permissions()
+        connection = None
+
+        try:
+
+            connection = get_connection()
+
+            cursor = connection.cursor()
+
+            cursor.execute(
+                """
+                SELECT id, role_name
+                FROM dbo.roles
+                WHERE is_active = 1
+                  AND UPPER(role_code) <> 'SUPER_ADMIN'
+                ORDER BY id
+                """
+            )
+
+            rows = cursor.fetchall()
+
+            # منع تنفيذ load_permissions مع كل عنصر يتم إضافته
+            self.role_combo.blockSignals(True)
+
+            self.role_combo.clear()
+
+            for row in rows:
+                self.role_combo.addItem(
+                    row["role_name"],
+                    int(row["id"]),
+                )
+
+            self.role_combo.blockSignals(False)
+
+        except Exception as e:
+
+            self.role_combo.blockSignals(False)
+
+            QMessageBox.critical(
+                self,
+                "خطأ",
+                f"تعذر تحميل الأدوار:\n{e}"
+            )
+
+            return
+
+        finally:
+
+            if connection:
+
+                try:
+                    connection.close()
+                except Exception:
+                    pass
+
+        if self.role_combo.count() > 0:
+
+            self.role_combo.setCurrentIndex(0)
+
+            self.load_permissions()
 
     # =========================================================
     # Load permissions
@@ -390,9 +419,7 @@ class PermissionsPage(QWidget):
             rows = cursor.fetchall()
 
             allowed_map = {
-                int(row["permission_id"]): bool(
-                    row["allowed"]
-                )
+                int(row["permission_id"]): bool(row["allowed"])
                 for row in rows
             }
 
@@ -413,10 +440,6 @@ class PermissionsPage(QWidget):
 
             permission_rows = cursor.fetchall()
 
-            # -------------------------------------------------
-            # Convert permissions to dictionary
-            # -------------------------------------------------
-
             permission_map = {
                 row["permission_code"]: int(row["id"])
                 for row in permission_rows
@@ -432,69 +455,45 @@ class PermissionsPage(QWidget):
 
                 for permission_code, permission_name in items:
 
-                    permission_id = permission_map.get(
-                        permission_code
-                    )
+                    permission_id = permission_map.get(permission_code)
 
                     if permission_id is None:
                         continue
 
-                    self.table.insertRow(
-                        row_index
-                    )
+                    self.table.insertRow(row_index)
 
                     # Group
                     self.table.setItem(
                         row_index,
                         0,
-                        QTableWidgetItem(
-                            group_name
-                        )
+                        QTableWidgetItem(group_name)
                     )
 
                     # Permission name
                     self.table.setItem(
                         row_index,
                         1,
-                        QTableWidgetItem(
-                            permission_name
-                        )
+                        QTableWidgetItem(permission_name)
                     )
 
                     # Checkbox
                     check = QCheckBox()
 
                     check.setChecked(
-                        allowed_map.get(
-                            permission_id,
-                            False
-                        )
+                        allowed_map.get(permission_id, False)
                     )
 
-                    check.setCursor(
-                        Qt.PointingHandCursor
-                    )
+                    check.setCursor(Qt.PointingHandCursor)
 
                     container = QWidget()
 
-                    box = QHBoxLayout(
-                        container
-                    )
+                    box = QHBoxLayout(container)
 
-                    box.setContentsMargins(
-                        0,
-                        0,
-                        0,
-                        0
-                    )
+                    box.setContentsMargins(0, 0, 0, 0)
 
-                    box.setAlignment(
-                        Qt.AlignCenter
-                    )
+                    box.setAlignment(Qt.AlignCenter)
 
-                    box.addWidget(
-                        check
-                    )
+                    box.addWidget(check)
 
                     self.table.setCellWidget(
                         row_index,
@@ -502,9 +501,7 @@ class PermissionsPage(QWidget):
                         container
                     )
 
-                    self.checkboxes[
-                        permission_id
-                    ] = check
+                    self.checkboxes[permission_id] = check
 
                     row_index += 1
 
@@ -532,10 +529,7 @@ class PermissionsPage(QWidget):
     def select_all(self):
 
         for checkbox in self.checkboxes.values():
-
-            checkbox.setChecked(
-                True
-            )
+            checkbox.setChecked(True)
 
     # =========================================================
     # Select none
@@ -544,10 +538,7 @@ class PermissionsPage(QWidget):
     def select_none(self):
 
         for checkbox in self.checkboxes.values():
-
-            checkbox.setChecked(
-                False
-            )
+            checkbox.setChecked(False)
 
     # =========================================================
     # Save permissions
@@ -581,26 +572,14 @@ class PermissionsPage(QWidget):
             cursor = connection.cursor()
 
             # -------------------------------------------------
-            # IMPORTANT:
-            #
-            # لا نعتمد على UPDATE فقط.
-            #
-            # لو سجل الصلاحية موجود:
-            #     UPDATE
-            #
-            # لو غير موجود:
-            #     INSERT
+            # لو سجل الصلاحية موجود  -> UPDATE
+            # لو غير موجود          -> INSERT
             # -------------------------------------------------
 
             for permission_id, checkbox in self.checkboxes.items():
 
-                allowed = (
-                    1
-                    if checkbox.isChecked()
-                    else 0
-                )
+                allowed = 1 if checkbox.isChecked() else 0
 
-                # Check whether row exists
                 cursor.execute(
                     """
                     SELECT COUNT(*)
@@ -616,15 +595,9 @@ class PermissionsPage(QWidget):
 
                 result = cursor.fetchone()
 
-                exists = (
-                    result[0] > 0
-                )
+                exists = result[0] > 0
 
                 if exists:
-
-                    # -----------------------------------------
-                    # Existing permission -> UPDATE
-                    # -----------------------------------------
 
                     cursor.execute(
                         """
@@ -642,10 +615,6 @@ class PermissionsPage(QWidget):
 
                 else:
 
-                    # -----------------------------------------
-                    # Missing permission -> INSERT
-                    # -----------------------------------------
-
                     cursor.execute(
                         """
                         INSERT INTO dbo.role_permissions
@@ -662,10 +631,6 @@ class PermissionsPage(QWidget):
                             allowed,
                         )
                     )
-
-            # -------------------------------------------------
-            # Commit
-            # -------------------------------------------------
 
             connection.commit()
 
