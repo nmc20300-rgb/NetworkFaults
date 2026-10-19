@@ -955,8 +955,9 @@ class SwitchDialog(QDialog):
         self.model.addItems(["Cisco 24 Port", "Cisco 48 Port", "Cisco 12 Port", "Tp-Link", "Ubiquiti NanoStation", "أخرى"])
 
         self.ports = QSpinBox()
-        self.ports.setRange(1, 96)
-        self.ports.setValue(24)
+        self.ports.setRange(0, 96)
+        self.ports.setSpecialValueText("غير محدد")
+        self.ports.setValue(0)
         self.ports.setSuffix(" منفذ")
 
         self.role = QComboBox()
@@ -1015,7 +1016,7 @@ class SwitchDialog(QDialog):
 
         self.location_detail.setText(s["location_detail"] or "")
         self.model.setCurrentText(s["model"] or "")
-        self.ports.setValue(int(s["ports_count"] or 24))
+        self.ports.setValue(int(s["ports_count"] or 0))
 
         idx = self.role.findText(s["role"] or "")
         if idx >= 0:
@@ -1043,7 +1044,7 @@ class SwitchDialog(QDialog):
             "building_id": self.building.currentData(),
             "location_detail": self.location_detail.text().strip(),
             "model": self.model.currentText().strip(),
-            "ports_count": self.ports.value(),
+            "ports_count": self.ports.value() or None,
             "role": self.role.currentText(),
             "ip_address": self.ip_address.text().strip(),
             "status": self.status.currentText(),
@@ -2825,7 +2826,7 @@ class CamerasPage(QWidget):
                 make_item(s["building_name"] or "-", align_right=True),
                 make_item(s["location_detail"] or "-", align_right=True),
                 make_item(s["model"] or "-"),
-                make_item(f"{s['ports_count'] or '-'} Port"),
+                make_item(f"{s['ports_count']} Port" if s["ports_count"] else "-"),
                 make_item(role, role_colors),
                 make_item(cams_chip, colors=cams_color, bold=bool(cams_count)),
                 make_item(s["ip_address"] or "-"),

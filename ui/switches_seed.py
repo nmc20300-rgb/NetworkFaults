@@ -1,420 +1,93 @@
 """
 ui/switches_seed.py
 ===================
-قائمة وبيانات السويتشات المعتمدة وربطها بالمباني والكاميرات.
-مأخوذة بدقة من جدول السويتشات المعتمد بالمنظومة:
-  - موديلات السويتشات: Cisco (12P, 24P, 48P), Tp-Link, Ubiquiti NanoStation
-  - أغراض الاستخدام: كاميرات مراقبة، شبكة عامة، شبكة عسكرية، ربط لاسلكي
-  - ربط تلقائي ذكي بالكاميرات حسب المبنى والدور
+قائمة السويتشات المعتمدة وربطها بالمباني والكاميرات.
+مطابقة لجدول السويتشات الفعلي (38 سويتش): المبنى + الموديل + الغرض فقط،
+وموضع الدور لسويتشات الإدارة لأنه مذكور في الجدول.
+أي بيانات أخرى (المنافذ لغير Cisco، المواضع، الملاحظات) تُدخل يدويًا عند الحاجة.
 """
 
 from database import get_connection
 
-SWITCHES_DATA = [
-    # 1. الضواغط (1 سويتش)
-    {
-        "code": "SW-001",
-        "name": "سويتش الضواغط (كاميرا)",
-        "building": "الضواغط",
-        "location": "غرفة التشغيل والتحكم",
-        "model": "Tp-Link",
-        "ports": 8,
-        "role": "كاميرات مراقبة",
-        "notes": "مخصص لتغذية كاميرات مبنى الضواغط",
-    },
-    # 2. المبردات (1 سويتش)
-    {
-        "code": "SW-002",
-        "name": "سويتش المبردات (شبكة)",
-        "building": "المبردات",
-        "location": "مبنى المبردات",
-        "model": "Tp-Link",
-        "ports": 8,
-        "role": "شبكة",
-        "notes": "مخصص لنقاط شبكة المبردات",
-    },
-    # 3. الإعاشة (1 سويتش)
-    {
-        "code": "SW-003",
-        "name": "سويتش الإعاشة (كاميرا)",
-        "building": "الإعاشة",
-        "location": "مبنى الإعاشة",
-        "model": "Tp-Link",
-        "ports": 8,
-        "role": "كاميرات مراقبة",
-        "notes": "مخصص لكاميرات العنابر العلوية والسفلية وخلفي الذخيرة",
-    },
-    # 4. مبنى 1 (1 سويتش)
-    {
-        "code": "SW-004",
-        "name": "سويتش مبنى 1 (Cisco 12P)",
-        "building": "مبنى 1",
-        "location": "مبنى 1",
-        "model": "Cisco 12 Port",
-        "ports": 12,
-        "role": "شبكة وكاميرات",
-        "notes": "مشترك لخدمة نقاط الشبكة وكاميرات مبنى 1",
-    },
-    # 5. الإدارة (3 سويتشات مذكورة وتفصيلها 4 وحدات)
-    {
-        "code": "SW-005",
-        "name": "سويتش الإدارة — الدور الأرضي (Cisco 24P)",
-        "building": "الإدارة",
-        "location": "الدور الأرضي",
-        "model": "Cisco 24 Port",
-        "ports": 24,
-        "role": "شبكة وكاميرات",
-        "notes": "خدمة الدور الأرضي شبكة وكاميرات",
-    },
-    {
-        "code": "SW-006",
-        "name": "سويتش الإدارة — الدور الأرضي (Tp-Link عسكرية)",
-        "building": "الإدارة",
-        "location": "الدور الأرضي",
-        "model": "Tp-Link",
-        "ports": 8,
-        "role": "شبكة عسكرية",
-        "notes": "مخصص للشبكة العسكرية بالدور الأرضي",
-    },
-    {
-        "code": "SW-007",
-        "name": "سويتش الإدارة — الدور الأول (Cisco 48P)",
-        "building": "الإدارة",
-        "location": "الدور الأول",
-        "model": "Cisco 48 Port",
-        "ports": 48,
-        "role": "شبكة وكاميرات",
-        "notes": "خدمة الدور الأول شبكة وكاميرات",
-    },
-    {
-        "code": "SW-008",
-        "name": "سويتش الإدارة — الدور الثاني (Cisco 24P)",
-        "building": "الإدارة",
-        "location": "الدور الثاني",
-        "model": "Cisco 24 Port",
-        "ports": 24,
-        "role": "شبكة وكاميرات",
-        "notes": "خدمة الدور الثاني شبكة وكاميرات",
-    },
-    # 6. مبنى 3 (1 سويتش)
-    {
-        "code": "SW-009",
-        "name": "سويتش مبنى 3 (Cisco 24P)",
-        "building": "مبنى 3",
-        "location": "مبنى 3",
-        "model": "Cisco 24 Port",
-        "ports": 24,
-        "role": "شبكة وكاميرات",
-        "notes": "مشترك لخدمة شبكة وكاميرات مبنى 3",
-    },
-    # 7. مبنى الشبكة (1 سويتش)
-    {
-        "code": "SW-010",
-        "name": "سويتش مبنى الشبكة (Cisco 24P)",
-        "building": "الشبكة",
-        "location": "مبنى الشبكة الرئيسي",
-        "model": "Cisco 24 Port",
-        "ports": 24,
-        "role": "شبكة وكاميرات",
-        "notes": "مشترك لخدمة شبكة وكاميرات مبنى الشبكة",
-    },
-    # 8. مبنى 14 و 15 (2 سويتش)
-    {
-        "code": "SW-011",
-        "name": "سويتش مبنى 14 (Tp-Link)",
-        "building": "مبنى 14",
-        "location": "مبنى 14",
-        "model": "Tp-Link",
-        "ports": 8,
-        "role": "شبكة وكاميرات",
-        "notes": "مشترك لخدمة مبنى 14",
-    },
-    {
-        "code": "SW-012",
-        "name": "سويتش مبنى 15 (Tp-Link)",
-        "building": "مبنى 15",
-        "location": "مبنى 15",
-        "model": "Tp-Link",
-        "ports": 8,
-        "role": "شبكة وكاميرات",
-        "notes": "مشترك لخدمة مبنى 15",
-    },
-    # 9. الصيانة (1 سويتش)
-    {
-        "code": "SW-013",
-        "name": "سويتش فرع الصيانة (Cisco 24P)",
-        "building": "فرع الصيانة",
-        "location": "مبنى الصيانة",
-        "model": "Cisco 24 Port",
-        "ports": 24,
-        "role": "شبكة وكاميرات",
-        "notes": "مشترك لخدمة الصيانة",
-    },
-    # 10. الحملة (2 سويتش)
-    {
-        "code": "SW-014",
-        "name": "سويتش الحملة 1 (Tp-Link)",
-        "building": "الحملة",
-        "location": "مبنى الحملة — القطاع الأول",
-        "model": "Tp-Link",
-        "ports": 8,
-        "role": "شبكة وكاميرات",
-        "notes": "مشترك شبكة وكاميرات بالحملة",
-    },
-    {
-        "code": "SW-015",
-        "name": "سويتش الحملة 2 (Tp-Link)",
-        "building": "الحملة",
-        "location": "مبنى الحملة — القطاع الثاني",
-        "model": "Tp-Link",
-        "ports": 8,
-        "role": "شبكة وكاميرات",
-        "notes": "مشترك شبكة وكاميرات بالحملة",
-    },
-    # 11. السيلنجيه (سويتش مشترك / وحدتان)
-    {
-        "code": "SW-016",
-        "name": "سويتش السيلنجيه — كاميرات (Tp-Link)",
-        "building": "السيلنجه",
-        "location": "مبنى السيلنجه",
-        "model": "Tp-Link",
-        "ports": 8,
-        "role": "كاميرات مراقبة",
-        "notes": "مخصص لكاميرات السيلنجيه",
-    },
-    {
-        "code": "SW-017",
-        "name": "سويتش السيلنجيه — شبكة (Cisco 24P)",
-        "building": "السيلنجه",
-        "location": "مبنى السيلنجه",
-        "model": "Cisco 24 Port",
-        "ports": 24,
-        "role": "شبكة",
-        "notes": "مخصص لنقاط الشبكة بالسيلنجيه",
-    },
-    # 12. القزق الميكانيكي (1 سويتش)
-    {
-        "code": "SW-018",
-        "name": "سويتش القزق الميكانيكي (Tp-Link)",
-        "building": "القزق الميكانيكي",
-        "location": "القزق الميكانيكي",
-        "model": "Tp-Link",
-        "ports": 8,
-        "role": "كاميرات مراقبة",
-        "notes": "مخصص لكاميرات القزق الميكانيكي",
-    },
-    # 13. الهنجر
-    {
-        "code": "SW-019",
-        "name": "سويتش الهنجر — كاميرات (Tp-Link)",
-        "building": "الهنجر",
-        "location": "مبنى الهنجر",
-        "model": "Tp-Link",
-        "ports": 8,
-        "role": "كاميرات مراقبة",
-        "notes": "مخصص لكاميرات مبنى الهنجر",
-    },
-    {
-        "code": "SW-020",
-        "name": "سويتش الهنجر — شبكة (Cisco 24P)",
-        "building": "الهنجر",
-        "location": "مبنى الهنجر",
-        "model": "Cisco 24 Port",
-        "ports": 24,
-        "role": "شبكة",
-        "notes": "مخصص لشبكة مبنى الهنجر",
-    },
-    {
-        "code": "SW-021",
-        "name": "نقطة ربط الهنجر (Nano Station)",
-        "building": "الهنجر",
-        "location": "أعلى مبنى الهنجر",
-        "model": "Ubiquiti NanoStation",
-        "ports": 2,
-        "role": "ربط لاسلكي",
-        "notes": "جهاز ربط لاسلكي Nano Station",
-    },
-    # 14. مبنى 43
-    {
-        "code": "SW-022",
-        "name": "سويتش مبنى 43 — كاميرات (Tp-Link)",
-        "building": "مبنى 43",
-        "location": "مبنى 43",
-        "model": "Tp-Link",
-        "ports": 8,
-        "role": "كاميرات مراقبة",
-        "notes": "مخصص لكاميرات مبنى 43",
-    },
-    {
-        "code": "SW-023",
-        "name": "سويتش مبنى 43 — شبكة (Cisco 24P)",
-        "building": "مبنى 43",
-        "location": "مبنى 43",
-        "model": "Cisco 24 Port",
-        "ports": 24,
-        "role": "شبكة",
-        "notes": "مخصص لنقاط شبكة مبنى 43",
-    },
-    {
-        "code": "SW-024",
-        "name": "نقطة ربط مبنى 43 (Nano Station)",
-        "building": "مبنى 43",
-        "location": "أعلى مبنى 43",
-        "model": "Ubiquiti NanoStation",
-        "ports": 2,
-        "role": "ربط لاسلكي",
-        "notes": "جهاز ربط لاسلكي Nano Station",
-    },
-    # 15. مبنى 44 ، 45 ، 46
-    {
-        "code": "SW-025",
-        "name": "سويتش مبنى 44/45/46 — كاميرات (Tp-Link)",
-        "building": "مبنى 44",
-        "location": "مجمع مباني 44/45/46",
-        "model": "Tp-Link",
-        "ports": 8,
-        "role": "كاميرات مراقبة",
-        "notes": "مخصص لكاميرات مجمع مباني 44 و45 و46",
-    },
-    {
-        "code": "SW-026",
-        "name": "سويتش مبنى 44/45/46 — شبكة (Cisco 24P)",
-        "building": "مبنى 44",
-        "location": "مجمع مباني 44/45/46",
-        "model": "Cisco 24 Port",
-        "ports": 24,
-        "role": "شبكة",
-        "notes": "مخصص لنقاط شبكة مباني 44 و45 و46",
-    },
-    {
-        "code": "SW-027",
-        "name": "نقطة ربط مبنى 44/45/46 (Nano Station)",
-        "building": "مبنى 44",
-        "location": "أعلى مبنى 44",
-        "model": "Ubiquiti NanoStation",
-        "ports": 2,
-        "role": "ربط لاسلكي",
-        "notes": "جهاز ربط لاسلكي Nano Station",
-    },
-    # 16. إدارة الرافع
-    {
-        "code": "SW-028",
-        "name": "سويتش إدارة الرافع — كاميرات (Tp-Link)",
-        "building": "الرافع",
-        "location": "مبنى إدارة الرافع",
-        "model": "Tp-Link",
-        "ports": 8,
-        "role": "كاميرات مراقبة",
-        "notes": "مخصص لكاميرات إدارة الرافع",
-    },
-    {
-        "code": "SW-029",
-        "name": "سويتش إدارة الرافع — شبكة (Cisco 24P)",
-        "building": "الرافع",
-        "location": "مبنى إدارة الرافع",
-        "model": "Cisco 24 Port",
-        "ports": 24,
-        "role": "شبكة",
-        "notes": "مخصص لنقاط شبكة إدارة الرافع",
-    },
-    {
-        "code": "SW-030",
-        "name": "نقطة ربط إدارة الرافع (Nano Station)",
-        "building": "الرافع",
-        "location": "أعلى مبنى الرافع",
-        "model": "Ubiquiti NanoStation",
-        "ports": 2,
-        "role": "ربط لاسلكي",
-        "notes": "جهاز ربط لاسلكي Nano Station",
-    },
-    # 17. بوابة المهبط
-    {
-        "code": "SW-031",
-        "name": "سويتش بوابة المهبط (Tp-Link)",
-        "building": "بوابة المهبط",
-        "location": "غرفة حراسة بوابة المهبط",
-        "model": "Tp-Link",
-        "ports": 8,
-        "role": "كاميرات مراقبة",
-        "notes": "مخصص لتغذية كاميرا بوابة المهبط",
-    },
-    # 18. الطبلية
-    {
-        "code": "SW-032",
-        "name": "سويتش الطبلية (Cisco 12P)",
-        "building": "الطبلية",
-        "location": "مبنى الطبلية",
-        "model": "Cisco 12 Port",
-        "ports": 12,
-        "role": "شبكة وكاميرات",
-        "notes": "مشترك لخدمة شبكة وكاميرا الطبلية",
-    },
-    # 19. المخازن LSC
-    {
-        "code": "SW-033",
-        "name": "سويتش المخازن LSC — كاميرات (Tp-Link)",
-        "building": "مبنى LSC",
-        "location": "مبنى المخازن LSC",
-        "model": "Tp-Link",
-        "ports": 8,
-        "role": "كاميرات مراقبة",
-        "notes": "مخصص لكاميرات مخازن LSC",
-    },
-    {
-        "code": "SW-034",
-        "name": "سويتش المخازن LSC — شبكة (Cisco 24P)",
-        "building": "مبنى LSC",
-        "location": "مبنى المخازن LSC",
-        "model": "Cisco 24 Port",
-        "ports": 24,
-        "role": "شبكة",
-        "notes": "مخصص لنقاط شبكة مخازن LSC",
-    },
-    # 20. الألغام
-    {
-        "code": "SW-035",
-        "name": "سويتش مبنى الألغام (Cisco 24P)",
-        "building": "الألغام",
-        "location": "مبنى الألغام",
-        "model": "Cisco 24 Port",
-        "ports": 24,
-        "role": "شبكة",
-        "notes": "مخصص لشبكة الألغام",
-    },
-    # 21. المدمرات
-    {
-        "code": "SW-036",
-        "name": "سويتش مبنى المدمرات (Cisco 24P)",
-        "building": "المدمرات",
-        "location": "مبنى المدمرات",
-        "model": "Cisco 24 Port",
-        "ports": 24,
-        "role": "شبكة",
-        "notes": "مخصص لشبكة المدمرات",
-    },
-    # 22. شعبة الصيانة
-    {
-        "code": "SW-037",
-        "name": "سويتش شعبة الصيانة (Cisco 24P)",
-        "building": "شعبه الصيانه",
-        "location": "مبنى شعبة الصيانة",
-        "model": "Cisco 24 Port",
-        "ports": 24,
-        "role": "شبكة",
-        "notes": "مخصص لنقاط شبكة شعبة الصيانة",
-    },
-    # 23. كبير المهندسين + مساعد القائد
-    {
-        "code": "SW-038",
-        "name": "سويتش كبير المهندسين ومساعد القائد (Cisco 24P)",
-        "building": "كبير المهندسين + مساعد القائد",
-        "location": "مكتب كبير المهندسين ومساعد القائد",
-        "model": "Cisco 24 Port",
-        "ports": 24,
-        "role": "شبكة",
-        "notes": "مخصص لشبكة مكاتب كبير المهندسين ومساعد القائد",
-    },
+SW_CAM = "كاميرات مراقبة"
+SW_NET = "شبكة"
+SW_BOTH = "شبكة وكاميرات"
+SW_MIL = "شبكة عسكرية"
+SW_WIFI = "ربط لاسلكي"
+
+TP = "Tp-Link"
+C12 = "Cisco 12 Port"
+C24 = "Cisco 24 Port"
+C48 = "Cisco 48 Port"
+NANO = "Ubiquiti NanoStation"
+
+# عدد المنافذ يُؤخذ من اسم موديل Cisco فقط (12/24/48)؛ غير ذلك غير محدد.
+_CISCO_PORTS = {C12: 12, C24: 24, C48: 48}
+
+# (الكود، الاسم، المبنى، الموضع، الموديل، الغرض)
+_ROWS = [
+    ("SW-001", "سويتش الضواغط (كاميرا)", "الضواغط", None, TP, SW_CAM),
+    ("SW-002", "سويتش المبردات (شبكة)", "المبردات", None, TP, SW_NET),
+    ("SW-003", "سويتش الإعاشة (كاميرا)", "الإعاشة", None, TP, SW_CAM),
+    ("SW-004", "سويتش مبنى 1 (Cisco 12P)", "مبنى 1", None, C12, SW_BOTH),
+    # الإدارة (4 سويتشات حسب الأدوار)
+    ("SW-005", "سويتش الإدارة — الدور الأرضي (Cisco 24P)", "الإدارة", "الدور الأرضي", C24, SW_BOTH),
+    ("SW-006", "سويتش الإدارة — الدور الأرضي (Tp-Link عسكرية)", "الإدارة", "الدور الأرضي", TP, SW_MIL),
+    ("SW-007", "سويتش الإدارة — الدور الأول (Cisco 48P)", "الإدارة", "الدور الأول", C48, SW_BOTH),
+    ("SW-008", "سويتش الإدارة — الدور الثاني (Cisco 24P)", "الإدارة", "الدور الثاني", C24, SW_BOTH),
+    ("SW-009", "سويتش مبنى 3 (Cisco 24P)", "مبنى 3", None, C24, SW_BOTH),
+    ("SW-010", "سويتش مبنى الشبكة (Cisco 24P)", "الشبكة", None, C24, SW_BOTH),
+    ("SW-011", "سويتش مبنى 14 (Tp-Link)", "مبنى 14", None, TP, SW_BOTH),
+    ("SW-012", "سويتش مبنى 15 (Tp-Link)", "مبنى 15", None, TP, SW_BOTH),
+    ("SW-013", "سويتش فرع الصيانة (Cisco 24P)", "فرع الصيانة", None, C24, SW_BOTH),
+    ("SW-014", "سويتش الحملة 1 (Tp-Link)", "الحملة", None, TP, SW_BOTH),
+    ("SW-015", "سويتش الحملة 2 (Tp-Link)", "الحملة", None, TP, SW_BOTH),
+    ("SW-016", "سويتش السيلنجيه — كاميرات (Tp-Link)", "السيلنجه", None, TP, SW_CAM),
+    ("SW-017", "سويتش السيلنجيه — شبكة (Cisco 24P)", "السيلنجه", None, C24, SW_NET),
+    ("SW-018", "سويتش القزق الميكانيكي (Tp-Link)", "القزق الميكانيكي", None, TP, SW_CAM),
+    ("SW-019", "سويتش الهنجر — كاميرات (Tp-Link)", "الهنجر", None, TP, SW_CAM),
+    ("SW-020", "سويتش الهنجر — شبكة (Cisco 24P)", "الهنجر", None, C24, SW_NET),
+    ("SW-021", "نقطة ربط الهنجر (Nano Station)", "الهنجر", None, NANO, SW_WIFI),
+    ("SW-022", "سويتش مبنى 43 — كاميرات (Tp-Link)", "مبنى 43", None, TP, SW_CAM),
+    ("SW-023", "سويتش مبنى 43 — شبكة (Cisco 24P)", "مبنى 43", None, C24, SW_NET),
+    ("SW-024", "نقطة ربط مبنى 43 (Nano Station)", "مبنى 43", None, NANO, SW_WIFI),
+    ("SW-025", "سويتش مبنى 44/45/46 — كاميرات (Tp-Link)", "مبنى 44", None, TP, SW_CAM),
+    ("SW-026", "سويتش مبنى 44/45/46 — شبكة (Cisco 24P)", "مبنى 44", None, C24, SW_NET),
+    ("SW-027", "نقطة ربط مبنى 44/45/46 (Nano Station)", "مبنى 44", None, NANO, SW_WIFI),
+    ("SW-028", "سويتش إدارة الرافع — كاميرات (Tp-Link)", "الرافع", None, TP, SW_CAM),
+    ("SW-029", "سويتش إدارة الرافع — شبكة (Cisco 24P)", "الرافع", None, C24, SW_NET),
+    ("SW-030", "نقطة ربط إدارة الرافع (Nano Station)", "الرافع", None, NANO, SW_WIFI),
+    ("SW-031", "سويتش بوابة المهبط (Tp-Link)", "بوابة المهبط", None, TP, SW_CAM),
+    ("SW-032", "سويتش الطبلية (Cisco 12P)", "الطبلية", None, C12, SW_BOTH),
+    ("SW-033", "سويتش المخازن LSC — كاميرات (Tp-Link)", "مبنى LSC", None, TP, SW_CAM),
+    ("SW-034", "سويتش المخازن LSC — شبكة (Cisco 24P)", "مبنى LSC", None, C24, SW_NET),
+    ("SW-035", "سويتش مبنى الألغام (Cisco 24P)", "الألغام", None, C24, SW_NET),
+    ("SW-036", "سويتش مبنى المدمرات (Cisco 24P)", "المدمرات", None, C24, SW_NET),
+    ("SW-037", "سويتش شعبة الصيانة (Cisco 24P)", "شعبه الصيانه", None, C24, SW_NET),
+    ("SW-038", "سويتش كبير المهندسين ومساعد القائد (Cisco 24P)",
+     "كبير المهندسين + مساعد القائد", None, C24, SW_NET),
 ]
+
+SWITCHES_DATA = [
+    {
+        "code": code,
+        "name": name,
+        "building": building,
+        "location": location,
+        "model": model,
+        "ports": _CISCO_PORTS.get(model),
+        "role": role,
+        "notes": None,
+    }
+    for code, name, building, location, model, role in _ROWS
+]
+
+ADMIN_BUILDING = "الإدارة"
+ADMIN_FLOOR_SWITCHES = {
+    "الدور الأرضي": "SW-005",
+    "الدور الأول": "SW-007",
+    "الدور الثاني": "SW-008",
+}
 
 
 def ensure_building_id(cursor, building_name):
@@ -422,21 +95,17 @@ def ensure_building_id(cursor, building_name):
     if not building_name:
         return None
 
-    # البحث بالاسم المباشر
     cursor.execute("SELECT id FROM buildings WHERE name = ?", (building_name,))
     row = cursor.fetchone()
     if row:
         return row["id"]
 
-    # تنظيف المسافات والبحث التقديري
     cursor.execute("SELECT id, name FROM buildings")
-    all_b = cursor.fetchall()
     clean_target = "".join(building_name.split())
-    for b in all_b:
+    for b in cursor.fetchall():
         if "".join(b["name"].split()) == clean_target:
             return b["id"]
 
-    # إنشاء المبنى إذا لم يكن موجودًا
     cursor.execute("INSERT INTO buildings (name) VALUES (?)", (building_name,))
     cursor.execute("SELECT CAST(SCOPE_IDENTITY() AS INT) AS id")
     new_row = cursor.fetchone()
@@ -452,12 +121,11 @@ def seed_network_switches(auto_link=True):
     try:
         cursor = conn.cursor()
 
-        # جلب الأكواد الموجودة مسبقًا لتجنب التكرار
         cursor.execute("SELECT switch_code FROM network_switches")
         existing_codes = {r["switch_code"] for r in cursor.fetchall()}
 
         added_switches = 0
-        switches_map = {}  # switch_code -> switch_id
+        switches_map = {}  # switch_code -> بيانات السويتش
 
         for s in SWITCHES_DATA:
             b_id = ensure_building_id(cursor, s["building"])
@@ -502,37 +170,41 @@ def seed_network_switches(auto_link=True):
 
 def link_cameras_to_switches(cursor, switches_map=None):
     """
-    ربط ذكي للكاميرات بالسويتشات المناسبة:
-    1. يطابق مبنى الكاميرا مع مبنى السويتش المخصص للكاميرات.
-    2. في مبنى الإدارة، يطابق الدور (الأرضي، الأول، الثاني).
-    3. يرقم المنافذ (Port 1, Port 2, ...) تلقائيًا.
+    ربط الكاميرات غير المربوطة بالسويتشات حسب المبنى:
+    1. يختار سويتش كاميرات (أو شبكة وكاميرات) في نفس مبنى الكاميرا،
+       وإلا أي سويتش في نفس المبنى.
+    2. في مبنى الإدارة فقط يُوزَّع حسب الدور (أرضي / أول / ثاني).
+    لا يرقّم المنافذ؛ رقم المنفذ يُسجَّل يدويًا لكل كاميرا.
     """
     if switches_map is None:
-        cursor.execute("SELECT id, switch_code, name, building_id, location_detail, role FROM network_switches WHERE is_archived = 0")
+        cursor.execute(
+            "SELECT id, switch_code, name, building_id, location_detail, role "
+            "FROM network_switches WHERE is_archived = 0"
+        )
         switches_map = {
             r["switch_code"]: {
                 "id": r["id"],
                 "building_id": r["building_id"],
-                "role": r["role"],
+                "role": r["role"] or "",
                 "name": r["name"],
                 "location": r["location_detail"],
             }
             for r in cursor.fetchall()
         }
 
-    # جلب الكاميرات المسجلة
+    # مبنى الإدارة = مبنى سويتشات الأدوار (يتحدد من الربط الفعلي لا من الاسم)
+    admin_building_id = (switches_map.get("SW-005") or {}).get("building_id")
+
     cursor.execute("""
-        SELECT c.id, c.camera_code, c.name, c.building_id, c.location_detail, c.switch_id
+        SELECT c.id, c.name, c.building_id, c.location_detail, c.switch_id
         FROM cameras c
         WHERE c.is_archived = 0
     """)
     cameras = cursor.fetchall()
 
-    port_counters = {}
     linked_count = 0
 
     for cam in cameras:
-        # إذا كانت الكاميرا مربوطة بالفعل بسويتش نتخطاها
         if cam["switch_id"]:
             continue
 
@@ -540,35 +212,22 @@ def link_cameras_to_switches(cursor, switches_map=None):
         if not b_id:
             continue
 
-        loc_text = str(cam["location_detail"] or "") + " " + str(cam["name"] or "")
-
-        # البحث عن السويتش الأنسب في نفس المبنى
         matched_switch_id = None
 
-        # حالة خاصة: مبنى الإدارة (توزيع حسب الدور)
-        if "الدور الأرضي" in loc_text:
-            matched_switch_id = switches_map.get("SW-005", {}).get("id")
-        elif "الدور الأول" in loc_text:
-            matched_switch_id = switches_map.get("SW-007", {}).get("id")
-        elif "الدور الثاني" in loc_text:
-            matched_switch_id = switches_map.get("SW-008", {}).get("id")
+        # توزيع الأدوار يخص مبنى الإدارة فقط
+        if admin_building_id and b_id == admin_building_id:
+            loc_text = f"{cam['location_detail'] or ''} {cam['name'] or ''}"
+            for floor, code in ADMIN_FLOOR_SWITCHES.items():
+                if floor in loc_text:
+                    matched_switch_id = (switches_map.get(code) or {}).get("id")
+                    break
 
         if not matched_switch_id:
-            # البحث عن سويتش كاميرات مخصص في نفس المبنى أولاً
-            candidate_switches = [
-                s for s in switches_map.values()
-                if s["building_id"] == b_id and "كاميرا" in s["role"]
-            ]
-
-            # إن لم يوجد، أي سويتش في نفس المبنى
-            if not candidate_switches:
-                candidate_switches = [
-                    s for s in switches_map.values()
-                    if s["building_id"] == b_id
-                ]
-
-            if candidate_switches:
-                matched_switch_id = candidate_switches[0]["id"]
+            in_building = [s for s in switches_map.values() if s["building_id"] == b_id]
+            camera_switches = [s for s in in_building if "كاميرا" in (s["role"] or "")]
+            candidates = camera_switches or in_building
+            if candidates:
+                matched_switch_id = candidates[0]["id"]
 
         if matched_switch_id:
             cursor.execute("""
