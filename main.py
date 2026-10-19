@@ -789,7 +789,6 @@ def main():
     login_page.login_successful.connect(open_main)
 
     login_window.show()
-
     return app.exec()
 
 
