@@ -733,7 +733,6 @@ def main():
 
     login_window.setCentralWidget(login_page)
     login_window.setLayoutDirection(Qt.RightToLeft)
-
     main_window = {"window": None}
 
     def handle_logout():

@@ -1,30 +1,27 @@
 """
-إدارة ومراقبة الكاميرات والسويتشات وأعطالها وصيانتها — منظومة متكاملة داخل نظام «الشبكة».
-تصميم منتج احترافي (Pro Enterprise Product Design):
-  - لوحة مؤشرات تفاعلية (KPI Metric Deck) مع إمكانية التصفية المباشرة بالنقر.
-  - تبويب مخصص لإدارة السويتشات والبنية الشبكية (Network Switches & Topology) مع إحصائيات المنافذ.
-  - ربط كامل بين الكاميرات والسويتشات المغذية لها وتحديد أرقام المنافذ (Switch Ports).
-  - عرض جدولي شامل وموحد لجميع الكاميرات مع البحث والفلاتر والإجراءات.
-  - مركز التنبيهات الذكي (Smart Alert Center) مع تصنيف الخطورة والفرز حسب الفئة.
-  - لوحة تحليلات وتقارير جاهزية (Executive Analytics, MTTR, Uptime %, Top Failing Cameras).
-  - نوافذ إدخال وتعديل مقسمة بطاقات منظمة ومراجعة تاريخية فاخرة (Hero Banner & Spec Sheet).
-  - توافق كامل 100% مع قاعدة البيانات، الصلاحيات، وسجل العمليات، وصرف قطع الغيار.
+إدارة الكاميرات والسويتشات وبلاغات الأعطال — داخل نظام «الشبكة».
+نسخة مبسطة:
+  - لوحة مؤشرات سريعة (إجمالي الكاميرات / تعمل / متوقفة / السويتشات / بلاغات مفتوحة).
+  - تبويب الكاميرات مع البحث والفلاتر.
+  - تبويب السويتشات مع ربط الكاميرات وأرقام المنافذ.
+  - تبويب بلاغات الأعطال مع صرف قطع الغيار.
+  - متوافق مع قاعدة البيانات والصلاحيات وسجل العمليات.
 """
 
 from datetime import datetime, date
 import html
+import ipaddress
 from pathlib import Path
 import tempfile
 import webbrowser
 
 from shiboken6 import isValid as qt_is_valid
-from PySide6.QtCore import Qt, QDate, QTimer, QSize
-from PySide6.QtGui import QColor, QFont, QCursor
+from PySide6.QtCore import Qt, QDate, QTimer, QRegularExpression
+from PySide6.QtGui import QColor, QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
-    QGridLayout,
     QFormLayout,
     QLabel,
     QPushButton,
@@ -41,14 +38,11 @@ from PySide6.QtWidgets import (
     QDateEdit,
     QSpinBox,
     QTabWidget,
+    QStackedWidget,
     QCheckBox,
     QFileDialog,
     QMenu,
     QScrollArea,
-    QProgressBar,
-    QListWidget,
-    QListWidgetItem,
-    QSplitter,
 )
 
 from database import get_connection, write_audit_log
@@ -73,11 +67,11 @@ CAMERA_STATUSES = ["تعمل", "تحت الصيانة", "متوقفة", "احت�
 PLACEMENTS = ["داخلية", "خارجية"]
 
 CAMERA_STATUS_COLORS = {
-    "تعمل": ("#065f46", "#ecfdf5", "#a7f3d0"),         # Emerald (text, bg, border)
-    "تحت الصيانة": ("#92400e", "#fffbeb", "#fde68a"),   # Amber
-    "متوقفة": ("#991b1b", "#fef2f2", "#fecaca"),         # Danger Rose
-    "احتياطي": ("#075985", "#f0f9ff", "#bae6fd"),        # Sky
-    "مستبعدة": ("#334155", "#f1f5f9", "#cbd5e1"),        # Slate
+    "تعمل": ("#065f46", "#ecfdf5", "#a7f3d0"),
+    "تحت الصيانة": ("#92400e", "#fffbeb", "#fde68a"),
+    "متوقفة": ("#991b1b", "#fef2f2", "#fecaca"),
+    "احتياطي": ("#075985", "#f0f9ff", "#bae6fd"),
+    "مستبعدة": ("#334155", "#f1f5f9", "#cbd5e1"),
 }
 
 CAMERA_TYPES = [
@@ -95,12 +89,12 @@ SWITCH_ROLES = [
 ]
 
 SWITCH_ROLE_COLORS = {
-    "كاميرات مراقبة": ("#065f46", "#ecfdf5", "#a7f3d0"),  # Emerald
-    "شبكة وكاميرات":  ("#0e7490", "#ecfeff", "#a5f3fc"),  # Cyan
-    "شبكة":          ("#1e40af", "#eff6ff", "#bfdbfe"),  # Blue
-    "شبكة عسكرية":   ("#854d0e", "#fefce8", "#fef08a"),  # Yellow/Gold
-    "ربط لاسلكي":    ("#6b21a8", "#faf5ff", "#e9d5ff"),  # Purple
-    "أخرى":          ("#334155", "#f1f5f9", "#cbd5e1"),  # Slate
+    "كاميرات مراقبة": ("#065f46", "#ecfdf5", "#a7f3d0"),
+    "شبكة وكاميرات": ("#0e7490", "#ecfeff", "#a5f3fc"),
+    "شبكة": ("#1e40af", "#eff6ff", "#bfdbfe"),
+    "شبكة عسكرية": ("#854d0e", "#fefce8", "#fef08a"),
+    "ربط لاسلكي": ("#6b21a8", "#faf5ff", "#e9d5ff"),
+    "أخرى": ("#334155", "#f1f5f9", "#cbd5e1"),
 }
 
 SWITCH_STATUSES = ["يعمل", "تحت الصيانة", "متوقف"]
@@ -116,16 +110,15 @@ FAULT_STATUSES = [
 ]
 
 FAULT_STATUS_COLORS = {
-    STATUS_NEW: ("#1e40af", "#eff6ff", "#bfdbfe"),             # Blue
-    "قيد الفحص": ("#5b21b6", "#f5f3ff", "#ddd6fe"),           # Violet
-    "قيد الإصلاح": ("#9a3412", "#fff7ed", "#ffedd5"),         # Orange
-    "بانتظار قطعة غيار": ("#86198f", "#fdf4ff", "#f5d0fe"),   # Fuchsia
-    STATUS_REPAIRED: ("#065f46", "#ecfdf5", "#a7f3d0"),       # Emerald
-    STATUS_CLOSED: ("#334155", "#f1f5f9", "#cbd5e1"),         # Slate
+    STATUS_NEW: ("#1e40af", "#eff6ff", "#bfdbfe"),
+    "قيد الفحص": ("#5b21b6", "#f5f3ff", "#ddd6fe"),
+    "قيد الإصلاح": ("#9a3412", "#fff7ed", "#ffedd5"),
+    "بانتظار قطعة غيار": ("#86198f", "#fdf4ff", "#f5d0fe"),
+    STATUS_REPAIRED: ("#065f46", "#ecfdf5", "#a7f3d0"),
+    STATUS_CLOSED: ("#334155", "#f1f5f9", "#cbd5e1"),
 }
 
 PRIORITIES = ["عادي", "متوسط", "عاجل", "حرج"]
-URGENT_PRIORITIES = ("عاجل", "حرج")
 
 PRIORITY_COLORS = {
     "عادي": ("#475569", "#f1f5f9", "#cbd5e1"),
@@ -134,31 +127,16 @@ PRIORITY_COLORS = {
     "حرج": ("#991b1b", "#fef2f2", "#fecaca"),
 }
 
-MAINTENANCE_TYPES = [
-    "فحص دوري شامل", "تنظيف العدسة والغطاء", "ضبط زاوية الرؤية والفوكس",
-    "تحديث Firmware", "فحص الكابلات والتغذية (PoE)", "صيانة الحماية والعزل", "أخرى",
-]
-
-# حدود التنبيهات الذكية
-OVERDUE_DAYS = 7              # بلاغ مفتوح أطول من 7 أيام = متأخر
-FREQUENT_FAULTS_MIN = 3       # 3 أعطال فأكثر خلال 90 يومًا = متكررة الأعطال
+# حد التنبيه عند تسجيل بلاغ جديد لكاميرا كثيرة الأعطال
+FREQUENT_FAULTS_MIN = 3
 FREQUENT_FAULTS_DAYS = 90
-WARRANTY_WARN_DAYS = 30       # تنبيه قبل 30 يومًا من انتهاء الضمان
-PREVENTIVE_SOON_DAYS = 7      # تنبيه قبل 7 أيام من موعد الصيانة الوقائية
-
-SEVERITY_COLORS = {
-    "عالية": ("#991b1b", "#fef2f2", "#fecaca"),
-    "متوسطة": ("#92400e", "#fffbeb", "#fde68a"),
-    "تنبيه": ("#075985", "#f0f9ff", "#bae6fd"),
-}
 
 
 # =============================================================
-# تصميم الواجهة وأنماط CSS الاحترافية (Pro Design System)
+# تصميم الواجهة وأنماط CSS
 # =============================================================
 
 CAMERAS_THEME_STYLE = """
-/* ── الخطوط والأساس ── */
 * {
     font-family: "IBM Plex Sans Arabic", "Segoe UI", -apple-system, Tahoma, sans-serif;
 }
@@ -167,11 +145,6 @@ QWidget#camerasRoot {
     background-color: #f4f7fb;
     color: #334155;
     font-size: 12px;
-}
-
-/* ── شريط الرأس والبطاقات ── */
-#heroHeader {
-    background: transparent;
 }
 
 #headerTitle {
@@ -197,7 +170,6 @@ QWidget#camerasRoot {
     font-weight: 700;
 }
 
-/* ── الأزرار الرئيسية ── */
 #primaryGradientBtn {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0891b2, stop:1 #06b6d4);
     color: white;
@@ -249,13 +221,45 @@ QWidget#camerasRoot {
     font-weight: 700;
 }
 
+#toolbarBtn, #toolbarDangerBtn {
+    background-color: #ffffff;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 0 12px;
+    min-height: 28px;
+    font-size: 12px;
+    font-weight: 700;
+    color: #334155;
+}
+
+#toolbarBtn:hover {
+    background-color: #f0f9ff;
+    border-color: #0891b2;
+    color: #0e7490;
+}
+
+#toolbarDangerBtn {
+    color: #b91c1c;
+    border-color: #fecaca;
+}
+
+#toolbarDangerBtn:hover {
+    background-color: #fef2f2;
+    border-color: #ef4444;
+}
+
+#toolbarBtn:disabled, #toolbarDangerBtn:disabled {
+    background-color: #f8fafc;
+    color: #cbd5e1;
+    border-color: #e2e8f0;
+}
+
 #moreOptionsBtn:hover {
     background-color: #f8fafc;
     border-color: #94a3b8;
     color: #0f172a;
 }
 
-/* ── شريط الأدوات والفلاتر ── */
 #modernToolbar {
     background-color: #ffffff;
     border: 1px solid #e2e8f0;
@@ -297,7 +301,6 @@ QWidget#camerasRoot {
     width: 20px;
 }
 
-/* ── التبويبات الفاخرة (Tabs) ── */
 QTabWidget#mainTabs::pane {
     background: #ffffff;
     border: 1px solid #e2e8f0;
@@ -330,7 +333,6 @@ QTabWidget#mainTabs > QTabBar::tab:hover:!selected {
     color: #0f2338;
 }
 
-/* ── الجداول ── */
 #proTableCard {
     background-color: #ffffff;
     border: 1px solid #e2e8f0;
@@ -357,7 +359,6 @@ QHeaderView::section {
     font-size: 12px;
 }
 
-/* ── أشرطة التمرير ── */
 QScrollBar:vertical {
     border: none;
     background: #f1f5f9;
@@ -394,7 +395,6 @@ QScrollBar::handle:horizontal:hover {
     background: #0891b2;
 }
 
-/* ── مربع الإشعارات ── */
 #proNotice {
     background-color: #ecfdf5;
     color: #065f46;
@@ -485,6 +485,11 @@ DDL_STATEMENTS = [
     CREATE UNIQUE INDEX UX_cameras_code ON dbo.cameras (camera_code)
     """,
     """
+    IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'UX_cameras_switch_port')
+    CREATE UNIQUE INDEX UX_cameras_switch_port ON dbo.cameras (switch_id, switch_port)
+    WHERE switch_id IS NOT NULL AND switch_port IS NOT NULL AND is_archived = 0
+    """,
+    """
     IF OBJECT_ID('dbo.camera_faults', 'U') IS NULL
     CREATE TABLE dbo.camera_faults (
         id INT IDENTITY(1,1) PRIMARY KEY,
@@ -518,6 +523,8 @@ DDL_STATEMENTS = [
     IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_camera_faults_camera')
     CREATE INDEX IX_camera_faults_camera ON dbo.camera_faults (camera_id)
     """,
+    # جدول الصيانة القديم يبقى كما هو (لم يعد له واجهة) حتى لا تضيع بياناته
+    # ولأن فحص الحذف النهائي يعتمد عليه.
     """
     IF OBJECT_ID('dbo.camera_maintenance', 'U') IS NULL
     CREATE TABLE dbo.camera_maintenance (
@@ -595,7 +602,7 @@ def fmt_dt(value):
 
 
 def make_item(text, colors=None, bold=False, tooltip=None, muted=False, align_right=False):
-    """عنصر جدول مصقول باحترافية وتنسيق ألوان أنيق."""
+    """عنصر جدول منسق."""
     item = QTableWidgetItem(str(text if text not in (None, "") else "-"))
     if align_right:
         item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter | Qt.AlignAbsolute)
@@ -624,7 +631,7 @@ def make_item(text, colors=None, bold=False, tooltip=None, muted=False, align_ri
 
 
 def make_table(headers, stretch_column=None):
-    """إنشاء جدول عالي الجودة بتصميم منتج حديث."""
+    """إنشاء جدول بتصميم موحد."""
     table = QTableWidget()
     table.setColumnCount(len(headers))
     table.setHorizontalHeaderLabels(headers)
@@ -649,7 +656,7 @@ def make_table(headers, stretch_column=None):
 
 
 def wrap_card(widget):
-    """تغليف أي عنصر ببطاقة أنيقة مع حدود وظلال خفيفة."""
+    """تغليف أي عنصر ببطاقة بحدود خفيفة."""
     card = QFrame()
     card.setObjectName("proTableCard")
     card.setStyleSheet("""
@@ -749,7 +756,7 @@ def open_print_page(content, prefix):
 
 
 def build_print_html(title, subtitle, headers, rows, summary=""):
-    """تقرير مطبوع فائق الجودة والترتيب (A4 أفقي)."""
+    """تقرير مطبوع (A4 أفقي)."""
     head = "".join(f"<th>{html.escape(h)}</th>" for h in headers)
     body = "".join(
         "<tr>"
@@ -762,6 +769,7 @@ def build_print_html(title, subtitle, headers, rows, summary=""):
     ) or f"<tr><td colspan='{len(headers)}'>لا توجد بيانات متاحة للعرض</td></tr>"
 
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    summary_html = f'<div class="summary">{html.escape(summary)}</div>' if summary else ""
 
     return f"""<!doctype html>
 <html lang="ar" dir="rtl"><head><meta charset="utf-8">
@@ -790,10 +798,10 @@ tbody tr:nth-child(even) td {{ background:#f8fafc; }}
   </div>
   <div class="badge">نظام إدارة الشبكة والكاميرات</div>
 </div>
-{f'<div class="summary">{html.escape(summary)}</div>' if summary else ''}
+{summary_html}
 <table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>
 <div class="foot">
-  <span>نظام الشبكة — الإدارة الفنية للكاميرات والسويتشات</span>
+  <span>نظام الشبكة — الكاميرات والسويتشات</span>
   <span>تاريخ وساعة الطباعة: {now}</span>
 </div>
 <script>window.onload=()=>window.print()</script>
@@ -801,19 +809,14 @@ tbody tr:nth-child(even) td {{ background:#f8fafc; }}
 
 
 # =============================================================
-# بطاقة إحصائيات تفاعلية مصممة كمنتج احترافي (Pro Metric Card)
+# بطاقة إحصائيات تفاعلية
 # =============================================================
 
 class ProMetricCard(QFrame):
-    """
-    بطاقة مؤشر KPI تفاعلية بتصميم حديث:
-    - لون تركيزي (Accent) على الشريط العلوي.
-    - أيقونة أنيقة، رقم رئيسي بحجم 26px، عنوان ورمز حالة.
-    - تدعم النقر للتصفية المباشرة (Direct Drilldown on Click).
-    """
+    """بطاقة مؤشر بسيطة؛ تدعم النقر للتصفية المباشرة."""
 
     def __init__(self, title, value="0", subtitle="", accent="#0891b2",
-                 icon="📹", on_click=None, parent=None):
+                 icon="", on_click=None, parent=None):
         super().__init__(parent)
         self.on_click = on_click
         self.accent = accent
@@ -825,7 +828,6 @@ class ProMetricCard(QFrame):
             QFrame#proMetricCard {{
                 background-color: #ffffff;
                 border: 1px solid #e2e8f0;
-                border-top: 3.5px solid {accent};
                 border-radius: 12px;
             }}
             QFrame#proMetricCard:hover {{
@@ -833,47 +835,49 @@ class ProMetricCard(QFrame):
                 background-color: #fafcff;
             }}
         """)
+        self.setMinimumHeight(86)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 12, 14, 12)
-        layout.setSpacing(4)
+        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setSpacing(2)
 
-        # صف العنوان والأيقونة
+        # العنوان مع نقطة لونية (بدل الشريط العلوي)
         top_row = QHBoxLayout()
-        top_row.setSpacing(6)
+        top_row.setSpacing(7)
 
-        self.icon_label = QLabel(icon)
-        self.icon_label.setStyleSheet(f"""
-            background-color: {accent}18;
-            color: {accent};
-            border-radius: 8px;
-            padding: 4px;
-            font-size: 13px;
-            font-weight: 800;
-        """)
-        top_row.addWidget(self.icon_label)
+        dot = QLabel("●")
+        dot.setStyleSheet(f"color: {accent}; font-size: 11px; background: transparent;")
+        top_row.addWidget(dot)
 
         self.title_label = QLabel(title)
-        self.title_label.setStyleSheet("color: #64748b; font-size: 12px; font-weight: 700;")
+        self.title_label.setStyleSheet(
+            "color: #64748b; font-size: 12px; font-weight: 700; background: transparent;"
+        )
         top_row.addWidget(self.title_label)
         top_row.addStretch()
-
         layout.addLayout(top_row)
 
-        # القيمة الرقمية الكبيرة
         self.val_label = QLabel(str(value))
-        self.val_label.setStyleSheet("color: #0f2338; font-size: 26px; font-weight: 800;")
+        self.val_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        self.val_label.setStyleSheet(
+            "color: #0f2338; font-size: 28px; font-weight: 800; background: transparent;"
+        )
         layout.addWidget(self.val_label)
 
-        # النص الفرعي أو التلميح
-        self.sub_label = QLabel(subtitle or ("انقر للتصفية ↗" if on_click else ""))
-        self.sub_label.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        # سطر فرعي يظهر فقط لو فيه نص
+        self.sub_label = QLabel(subtitle)
+        self.sub_label.setStyleSheet("color: #94a3b8; font-size: 11px; background: transparent;")
+        self.sub_label.setVisible(bool(subtitle))
         layout.addWidget(self.sub_label)
+
+        # نسق تفاعلي: نخلي الكارت بلا فراغ زيادة لما مفيش سطر فرعي
+        layout.addStretch()
 
     def set_value(self, val, sub=None):
         self.val_label.setText(str(val))
         if sub is not None:
             self.sub_label.setText(str(sub))
+            self.sub_label.setVisible(bool(sub))
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and self.on_click:
@@ -902,7 +906,7 @@ class SwitchDialog(QDialog):
         root.setSpacing(14)
 
         header_box = QHBoxLayout()
-        icon = QLabel("🖧")
+        icon = QLabel("")
         icon.setStyleSheet("font-size: 26px; color: #0891b2; padding-left: 6px;")
         header_box.addWidget(icon)
 
@@ -982,7 +986,7 @@ class SwitchDialog(QDialog):
         root.addWidget(form_frame, 1)
 
         btn_box = QHBoxLayout()
-        save_btn = QPushButton("💾  حفظ السويتش")
+        save_btn = QPushButton("  حفظ السويتش")
         save_btn.setObjectName("primaryGradientBtn")
         save_btn.setCursor(Qt.PointingHandCursor)
         save_btn.clicked.connect(self.validate_and_accept)
@@ -1048,11 +1052,11 @@ class SwitchDialog(QDialog):
 
 
 # =============================================================
-# نافذة ربط وتعيين الكاميرات بالسويتش (SwitchLinkCamerasDialog)
+# نافذة ربط الكاميرات بالسويتش
 # =============================================================
 
 class SwitchLinkCamerasDialog(QDialog):
-    """ربط الكاميرات بسويتش معين وتعديل المنافذ بسهولة بنقرة واحدة."""
+    """ربط الكاميرات بسويتش معين بنقرة واحدة."""
 
     def __init__(self, switch_id, parent=None):
         super().__init__(parent)
@@ -1074,19 +1078,18 @@ class SwitchLinkCamerasDialog(QDialog):
             WHERE s.id = ?
         """, (switch_id,))
 
-        title = QLabel(f"🔗 ربط الكاميرات بالسويتش: {self.switch_info['name']}")
+        title = QLabel(f" ربط الكاميرات بالسويتش: {self.switch_info['name']}")
         title.setStyleSheet("font-size: 16px; font-weight: 800; color: #0891b2;")
         root.addWidget(title)
 
         sub = QLabel(
-            f"المبنى: <b>{self.switch_info['building_name'] or 'غير محدد'}</b> | "
-            f"الموديل: <b>{self.switch_info['model'] or '-'}</b> | "
-            f"الغرض: <b>{self.switch_info['role'] or '-'}</b>"
+            f"المبنى: <b>{html.escape(self.switch_info['building_name'] or 'غير محدد')}</b> | "
+            f"الموديل: <b>{html.escape(self.switch_info['model'] or '-')}</b> | "
+            f"الغرض: <b>{html.escape(self.switch_info['role'] or '-')}</b>"
         )
         sub.setStyleSheet("font-size: 12px; color: #475569;")
         root.addWidget(sub)
 
-        # خيار فلترة الكاميرات
         filter_box = QHBoxLayout()
         self.filter_scope = QCheckBox("عرض كاميرات نفس المبنى فقط")
         self.filter_scope.setChecked(True)
@@ -1095,7 +1098,6 @@ class SwitchLinkCamerasDialog(QDialog):
         filter_box.addStretch()
         root.addLayout(filter_box)
 
-        # جدول الكاميرات للاختيار
         self.table = make_table(
             ["تحديد", "ID", "كود الكاميرا", "اسم الكاميرا", "المبنى", "السويتش الحالي"],
             stretch_column=3,
@@ -1103,9 +1105,8 @@ class SwitchLinkCamerasDialog(QDialog):
         self.table.setColumnHidden(1, True)
         root.addWidget(wrap_card(self.table), 1)
 
-        # أزرار الإجراءات
         btn_box = QHBoxLayout()
-        save_btn = QPushButton("💾  حفظ تعيينات الكاميرات")
+        save_btn = QPushButton("  حفظ تعيينات الكاميرات")
         save_btn.setObjectName("primaryGradientBtn")
         save_btn.setCursor(Qt.PointingHandCursor)
         save_btn.clicked.connect(self.save_links)
@@ -1172,13 +1173,14 @@ class SwitchLinkCamerasDialog(QDialog):
                 cam_id = int(self.table.item(r, 1).text())
 
                 if chk:
+                    # لا نمسح المنفذ لو الكاميرا مربوطة بالفعل بنفس السويتش
                     cur.execute("""
                         UPDATE cameras
-                        SET switch_id = ?, switch_port = NULL, updated_at = GETDATE()
+                        SET switch_port = CASE WHEN switch_id = ? THEN switch_port ELSE NULL END,
+                            switch_id = ?, updated_at = GETDATE()
                         WHERE id = ?
-                    """, (self.switch_id, cam_id))
+                    """, (self.switch_id, self.switch_id, cam_id))
                 else:
-                    # لو كانت مربوطة بهذا السويتش وتم إلغاء التحديد
                     cur.execute("""
                         UPDATE cameras
                         SET switch_id = NULL, switch_port = NULL, updated_at = GETDATE()
@@ -1195,67 +1197,157 @@ class SwitchLinkCamerasDialog(QDialog):
 
 
 # =============================================================
-# نافذة إضافة / تعديل كاميرا بتصميم بطاقات مقسمة
+# نافذة إضافة / تعديل كاميرا
 # =============================================================
 
 class CameraDialog(QDialog):
-    """نافذة إدخال بيانات الكاميرا مقسمة إلى بطاقات منظمة ومريحة للعين."""
+    """نافذة إضافة/تعديل كاميرا مع تحقق فوري."""
 
     def __init__(self, parent=None, camera=None):
         super().__init__(parent)
         self.camera = camera
+        self._loading = True
+        self._duplicate_serial = False
 
-        self.setWindowTitle("تعديل بيانات الكاميرا" if camera else "تسجيل كاميرا جديدة")
-        self.resize(700, 750)
+        self.setWindowTitle("تعديل بيانات الكاميرا" if camera else "إضافة كاميرا جديدة")
+        self.resize(760, 700)
+        self.setMinimumSize(680, 600)
         self.setLayoutDirection(Qt.RightToLeft)
-        self.setStyleSheet(CAMERAS_THEME_STYLE)
+        self.setStyleSheet(CAMERAS_THEME_STYLE + """
+            QLineEdit, QComboBox, QSpinBox, QTextEdit {
+                min-height: 30px;
+                border: 1px solid #cbd5e1;
+                border-radius: 7px;
+                padding: 3px 9px;
+                background: #ffffff;
+            }
+            QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QTextEdit:focus {
+                border: 2px solid #0891b2;
+            }
+            QLineEdit[error="true"] { border: 2px solid #dc2626; background: #fff7f7; }
+            QLabel.fieldHint { color: #64748b; font-size: 10px; }
+            QLabel.fieldError { color: #dc2626; font-size: 10px; font-weight: 700; }
+            QTabWidget::pane { border: 1px solid #e2e8f0; border-radius: 10px; background: #fff; }
+            QTabBar::tab { padding: 10px 20px; font-weight: 700; color: #64748b; }
+            QTabBar::tab:selected { color: #0891b2; border-bottom: 2px solid #0891b2; }
+        """)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 18, 20, 16)
-        root.setSpacing(14)
+        root.setContentsMargins(18, 16, 18, 14)
+        root.setSpacing(10)
 
-        # عنوان الرأس
-        header_box = QHBoxLayout()
-        icon = QLabel("📹")
-        icon.setStyleSheet("font-size: 24px; padding-left: 6px;")
-        header_box.addWidget(icon)
+        header = QHBoxLayout()
+        icon = QLabel("")
+        icon.setStyleSheet("font-size: 25px; padding-left: 7px;")
+        header.addWidget(icon)
+        title_box = QVBoxLayout()
+        title = QLabel("تعديل بيانات الكاميرا" if camera else "إضافة كاميرا جديدة")
+        title.setStyleSheet("font-size: 19px; font-weight: 800; color: #0f2338;")
+        subtitle = QLabel("أدخل البيانات الأساسية، ثم راجع الشبكة قبل الحفظ")
+        subtitle.setStyleSheet("font-size: 11px; color: #64748b;")
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+        header.addLayout(title_box)
+        header.addStretch()
+        self.step_hint = QLabel("البيانات الأساسية")
+        self.step_hint.setStyleSheet("color:#0891b2; font-weight:700;")
+        header.addWidget(self.step_hint)
+        root.addLayout(header)
 
-        title_vbox = QVBoxLayout()
-        title = QLabel("تعديل بيانات الكاميرا" if camera else "تسجيل كاميرا جديدة بالمنظومة")
-        title.setStyleSheet("font-size: 18px; font-weight: 800; color: #0f2338;")
-        sub = QLabel("أدخل المواصفات وموقع التركيب والسويتش المغذي بدقة")
-        sub.setStyleSheet("font-size: 11px; color: #64748b;")
-        title_vbox.addWidget(title)
-        title_vbox.addWidget(sub)
-        header_box.addLayout(title_vbox)
-        header_box.addStretch()
+        self.step_buttons = []
+        stepper = QHBoxLayout()
+        for i, label in enumerate(("1  البيانات الأساسية", "2  الشبكة والمواصفات", "3  الحالة والضمان")):
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.clicked.connect(lambda checked=False, n=i: self._go_to_step(n))
+            stepper.addWidget(btn)
+            self.step_buttons.append(btn)
+        root.addLayout(stepper)
 
-        root.addLayout(header_box)
+        self.tabs = QStackedWidget()
+        self.tabs.currentChanged.connect(self._tab_changed)
+        root.addWidget(self.tabs, 1)
 
-        # منطقة التمرير للمحتوى
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
+        self._build_identity_tab()
+        self._build_network_tab()
+        self._build_operations_tab()
 
-        container = QWidget()
-        c_layout = QVBoxLayout(container)
-        c_layout.setContentsMargins(0, 0, 0, 0)
-        c_layout.setSpacing(12)
+        footer = QHBoxLayout()
+        footer.setSpacing(9)
+        self.status_hint = QLabel("الحقول المعلّمة بنجمة مطلوبة")
+        self.status_hint.setStyleSheet("color:#64748b; font-size:11px;")
+        footer.addWidget(self.status_hint)
+        footer.addStretch()
 
-        # --- بطاقة 1: التعريف والموقع ---
-        sec1 = self._create_card("📍 التعريف والموقع الجغرافي")
-        form1 = QFormLayout(sec1)
-        form1.setLabelAlignment(Qt.AlignRight)
-        form1.setHorizontalSpacing(14)
-        form1.setVerticalSpacing(10)
+        self.back_button = QPushButton("السابق")
+        self.back_button.setObjectName("moreOptionsBtn")
+        self.back_button.clicked.connect(
+            lambda: self.tabs.setCurrentIndex(max(0, self.tabs.currentIndex() - 1))
+        )
+        self.next_button = QPushButton("التالي ←")
+        self.next_button.setObjectName("primaryGradientBtn")
+        self.next_button.clicked.connect(self._step_next)
+        cancel = QPushButton("إلغاء")
+        cancel.setObjectName("moreOptionsBtn")
+        cancel.clicked.connect(self.reject)
+        self.save_button = QPushButton("مراجعة وحفظ")
+        self.save_button.setObjectName("primaryGradientBtn")
+        self.save_button.setDefault(True)
+        self.save_button.clicked.connect(self.validate_and_accept)
+        footer.addWidget(self.back_button)
+        footer.addWidget(self.next_button)
+        footer.addWidget(cancel)
+        footer.addWidget(self.save_button)
+        root.addLayout(footer)
 
+        self._load_switches_into_combo()
+        self._connect_live_validation()
+        if camera:
+            self.load_camera()
+        else:
+            self._set_new_defaults()
+        self._loading = False
+        self._tab_changed(0)
+        self.name.setFocus()
+
+    def _card(self, title_text):
+        card = QFrame()
+        card.setStyleSheet("""
+            QFrame { background:#fff; border:1px solid #e2e8f0; border-radius:10px; }
+            QFrame QLabel.cardTitle { color:#0891b2; font-size:13px; font-weight:800; }
+        """)
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(14, 11, 14, 14)
+        heading = QLabel(title_text)
+        heading.setProperty("class", "cardTitle")
+        heading.setObjectName("cardTitle")
+        layout.addWidget(heading)
+        return card
+
+    def _form_card(self, title_text):
+        card = self._card(title_text)
+        form = QFormLayout()
+        form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        form.setHorizontalSpacing(16)
+        form.setVerticalSpacing(9)
+        card.layout().addLayout(form)
+        return card, form
+
+    def _build_identity_tab(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(5, 10, 5, 10)
+        layout.setSpacing(10)
+
+        card, form = self._form_card(" التعريف والموقع")
         self.code = QLineEdit()
         self.code.setReadOnly(True)
-        self.code.setStyleSheet("background: #f1f5f9; color: #475569; font-weight: 700;")
+        self.code.setPlaceholderText("يُنشأ تلقائيًا عند الحفظ")
+        self.code.setStyleSheet("background:#f1f5f9; color:#475569; font-weight:700;")
 
         self.name = QLineEdit()
-        self.name.setPlaceholderText("مثال: كاميرا المدخل الرئيسي للمبنى")
-
+        self.name.setPlaceholderText("مثال: كاميرا المدخل الرئيسي")
+        self.name.setClearButtonEnabled(True)
         self.building = QComboBox()
         self.building.addItem("غير محدد", None)
         for unit in building_choices():
@@ -1264,213 +1356,291 @@ class CameraDialog(QDialog):
 
         self.location_detail = QLineEdit()
         self.location_detail.setPlaceholderText("الدور / الغرفة / الموضع التفصيلي")
-
         self.placement = QComboBox()
         self.placement.addItem("غير محدد", "")
         for value in PLACEMENTS:
             self.placement.addItem(value, value)
-
         self.camera_type = QComboBox()
         self.camera_type.setEditable(True)
         self.camera_type.addItems(CAMERA_TYPES)
 
-        form1.addRow("كود الكاميرا:", self.code)
-        form1.addRow("الاسم التعريفي *:", self.name)
-        form1.addRow("المبنى / الفرع:", self.building)
-        form1.addRow("الموضع التفصيلي:", self.location_detail)
-        form1.addRow("التثبيت (داخلي/خارجي):", self.placement)
-        form1.addRow("نوع الكاميرا:", self.camera_type)
-        c_layout.addWidget(sec1)
+        form.addRow("كود الكاميرا:", self.code)
+        form.addRow("الاسم التعريفي *:", self.name)
+        form.addRow("المبنى / الفرع:", self.building)
+        form.addRow("الموضع التفصيلي:", self.location_detail)
+        form.addRow("التثبيت:", self.placement)
+        form.addRow("نوع الكاميرا:", self.camera_type)
+        layout.addWidget(card)
+        layout.addStretch()
+        self.tabs.addWidget(page)
 
-        # --- بطاقة 2: المواصفات الفنية والشبكة والسويتش ---
-        sec2 = self._create_card("⚙ المواصفات الفنية وهوية الجهاز والربط بالسويتش")
-        form2 = QFormLayout(sec2)
-        form2.setLabelAlignment(Qt.AlignRight)
-        form2.setHorizontalSpacing(14)
-        form2.setVerticalSpacing(10)
+    def _build_network_tab(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(5, 10, 5, 10)
+        layout.setSpacing(10)
+        card, form = self._form_card(" الهوية الفنية والربط الشبكي")
 
         self.switch_combo = QComboBox()
-
+        self.switch_port = QLineEdit()
+        self.switch_port.setPlaceholderText("مثال: 1/12 أو 12")
+        self.switch_port.setMaxLength(30)
         self.manufacturer = QLineEdit()
-        self.manufacturer.setPlaceholderText("مثال: Hikvision, Dahua, Uniview...")
-
+        self.manufacturer.setPlaceholderText("Hikvision / Dahua / Uniview")
         self.model = QLineEdit()
-        self.model.setPlaceholderText("مثال: DS-2CD2143G0-I")
-
+        self.model.setPlaceholderText("رقم الموديل")
         self.serial_number = QLineEdit()
-        self.serial_number.setPlaceholderText("الرقم التسلسلي للجهاز (Serial Number)")
-
+        self.serial_number.setPlaceholderText("Serial Number")
         self.ip_address = QLineEdit()
-        self.ip_address.setPlaceholderText("192.168.x.x (مرجع إداري)")
+        self.ip_address.setPlaceholderText("192.168.1.20")
+        self.ip_address.setValidator(QRegularExpressionValidator(QRegularExpression(r"[0-9.]{0,15}")))
 
-        form2.addRow("السويتش المتصل به:", self.switch_combo)
-        form2.addRow("الشركة المصنعة:", self.manufacturer)
-        form2.addRow("الموديل:", self.model)
-        form2.addRow("الرقم التسلسلي:", self.serial_number)
-        form2.addRow("عنوان IP:", self.ip_address)
-        c_layout.addWidget(sec2)
+        form.addRow("السويتش المتصل به:", self.switch_combo)
+        form.addRow("منفذ السويتش:", self.switch_port)
+        form.addRow("الشركة المصنعة:", self.manufacturer)
+        form.addRow("الموديل:", self.model)
+        form.addRow("الرقم التسلسلي:", self.serial_number)
+        form.addRow("عنوان IP:", self.ip_address)
+        layout.addWidget(card)
+        hint = QLabel("يفضل تسجيل السويتش والمنفذ لتسهيل التتبع لاحقًا")
+        hint.setProperty("class", "fieldHint")
+        layout.addWidget(hint)
+        layout.addStretch()
+        self.tabs.addWidget(page)
 
-        # --- بطاقة 3: التشغيل والصيانة والضمان ---
-        sec3 = self._create_card("🛡 التشغيل والضمان ودورة الصيانة")
-        form3 = QFormLayout(sec3)
-        form3.setLabelAlignment(Qt.AlignRight)
-        form3.setHorizontalSpacing(14)
-        form3.setVerticalSpacing(10)
-
+    def _build_operations_tab(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(5, 10, 5, 10)
+        layout.setSpacing(10)
+        card, form = self._form_card(" الحالة والضمان")
         self.status = QComboBox()
         self.status.addItems(CAMERA_STATUSES)
-
         self.install_date = optional_date_edit()
         self.warranty_end = optional_date_edit()
-
-        self.interval = QSpinBox()
-        self.interval.setRange(0, 3650)
-        self.interval.setSuffix(" يوم")
-        self.interval.setSpecialValueText("بدون صيانة دورية")
-
         self.notes = QTextEdit()
-        self.notes.setFixedHeight(65)
+        self.notes.setFixedHeight(90)
         self.notes.setPlaceholderText("ملاحظات فنية أو إدارية إضافية...")
 
-        form3.addRow("الحالة التشغيلية:", self.status)
-        form3.addRow("تاريخ التركيب:", with_clear_button(self.install_date))
-        form3.addRow("تاريخ انتهاء الضمان:", with_clear_button(self.warranty_end))
-        form3.addRow("دورة الصيانة الوقائية:", self.interval)
-        form3.addRow("ملاحظات:", self.notes)
-        c_layout.addWidget(sec3)
+        form.addRow("الحالة التشغيلية:", self.status)
+        form.addRow("تاريخ التركيب:", with_clear_button(self.install_date))
+        form.addRow("انتهاء الضمان:", with_clear_button(self.warranty_end))
+        form.addRow("ملاحظات:", self.notes)
+        layout.addWidget(card)
+        layout.addStretch()
+        self.tabs.addWidget(page)
 
-        scroll.setWidget(container)
-        root.addWidget(scroll, 1)
+    def _connect_live_validation(self):
+        self.name.textChanged.connect(self._validate_name_live)
+        self.ip_address.textChanged.connect(self._validate_ip_live)
+        self.serial_number.editingFinished.connect(self._check_serial_duplicate)
 
-        # أزرار الحفظ والإلغاء
-        btn_box = QHBoxLayout()
-        btn_box.setSpacing(10)
+    def _set_new_defaults(self):
+        self.status.setCurrentText("تعمل")
+        self.camera_type.setCurrentText("ثابتة")
 
-        save_btn = QPushButton("💾  حفظ الكاميرا")
-        save_btn.setObjectName("primaryGradientBtn")
-        save_btn.setCursor(Qt.PointingHandCursor)
-        save_btn.clicked.connect(self.validate_and_accept)
+    def _tab_changed(self, index):
+        labels = ["البيانات الأساسية", "الشبكة والمواصفات", "الحالة والضمان"]
+        self.step_hint.setText(f"الخطوة {index + 1} من 3 • {labels[index]}")
+        for i, btn in enumerate(self.step_buttons):
+            btn.setChecked(i == index)
+        self.back_button.setEnabled(index > 0)
+        self.next_button.setVisible(index < 2)
+        self.save_button.setVisible(index == 2)
 
-        cancel_btn = QPushButton("إلغاء")
-        cancel_btn.setObjectName("moreOptionsBtn")
-        cancel_btn.setCursor(Qt.PointingHandCursor)
-        cancel_btn.clicked.connect(self.reject)
+    def _go_to_step(self, index):
+        current = self.tabs.currentIndex()
+        if index > current and not self._validate_step(current):
+            return
+        self.tabs.setCurrentIndex(index)
 
-        btn_box.addStretch()
-        btn_box.addWidget(cancel_btn)
-        btn_box.addWidget(save_btn)
-        root.addLayout(btn_box)
+    def _step_next(self):
+        current = self.tabs.currentIndex()
+        if self._validate_step(current):
+            self.tabs.setCurrentIndex(min(2, current + 1))
 
-        self._load_switches_into_combo()
+    def _validation_warning(self, title, message, widget=None):
+        if widget is not None:
+            widget.setFocus()
+            self._set_error(widget, True)
+        self.status_hint.setText(message)
+        self.status_hint.setStyleSheet("color:#dc2626; font-size:11px; font-weight:700;")
+        QMessageBox.warning(self, title, message)
+        return False
 
-        if camera:
-            self.load_camera()
+    def _validate_step(self, index):
+        if index == 0:
+            if not self.name.text().strip():
+                return self._validation_warning("بيانات ناقصة", "اكتب اسم الكاميرا قبل الانتقال للخطوة التالية.", self.name)
+            if not self.code.text().strip():
+                return self._validation_warning("كود الكاميرا ناقص", "يجب تحديد كود الكاميرا قبل المتابعة.", self.code)
+            if not self._check_code_duplicate(True):
+                return self._validation_warning("كود مكرر", "كود الكاميرا مستخدم بالفعل، اختر كودًا آخر.", self.code)
+            return True
+        if index == 1:
+            if not self._validate_ip_live(self.ip_address.text()):
+                return self._validation_warning("عنوان IP غير صحيح", "اكتب عنوان IPv4 صحيحًا أو اترك الحقل فارغًا.", self.ip_address)
+            self._check_serial_duplicate()
+            if self._duplicate_serial:
+                return self._validation_warning("رقم تسلسلي مكرر", "هذا الرقم التسلسلي مستخدم في كاميرا أخرى.", self.serial_number)
+            if not self._check_port_duplicate(True):
+                return self._validation_warning("منفذ مستخدم", "منفذ السويتش مستخدم بالفعل على نفس السويتش.", self.switch_port)
+            return True
+        return True
+
+    def _validate_name_live(self, value):
+        self._set_error(self.name, not bool(value.strip()))
+        if value.strip():
+            self.status_hint.setText("البيانات الأساسية جاهزة")
+            self.status_hint.setStyleSheet("color:#64748b; font-size:11px;")
+        else:
+            self.status_hint.setText("اكتب اسمًا واضحًا وسهل التمييز")
+
+    def _validate_ip_live(self, value):
+        if not value.strip():
+            self._set_error(self.ip_address, False)
+            return True
+        try:
+            ipaddress.ip_address(value.strip())
+            self._set_error(self.ip_address, False)
+            return True
+        except ValueError:
+            self._set_error(self.ip_address, True)
+            return False
+
+    def _set_error(self, widget, state):
+        widget.setProperty("error", state)
+        widget.style().unpolish(widget)
+        widget.style().polish(widget)
+
+    def _check_serial_duplicate(self):
+        serial = self.serial_number.text().strip()
+        self._duplicate_serial = False
+        if not serial:
+            return
+        exclude_id = self.camera["id"] if self.camera else 0
+        duplicate = fetch_one(
+            """SELECT TOP 1 camera_code FROM cameras
+               WHERE serial_number = ? AND id <> ? AND is_archived = 0""",
+            (serial, exclude_id),
+        )
+        if duplicate:
+            self._duplicate_serial = True
+            self.status_hint.setText(f"الرقم التسلسلي مستخدم في الكاميرا {duplicate['camera_code']}")
+            self.status_hint.setStyleSheet("color:#dc2626; font-size:11px; font-weight:700;")
+        else:
+            self.status_hint.setText("الرقم التسلسلي متاح")
+            self.status_hint.setStyleSheet("color:#64748b; font-size:11px;")
 
     @staticmethod
-    def _create_card(title_text):
-        card = QFrame()
-        card.setStyleSheet("""
-            QFrame {
-                background-color: #ffffff;
-                border: 1px solid #e2e8f0;
-                border-radius: 10px;
-                padding: 10px;
-            }
-        """)
-        top = QLabel(title_text)
-        top.setStyleSheet("font-size: 13px; font-weight: 800; color: #0891b2; margin-bottom: 6px;")
-        layout = QVBoxLayout(card)
-        layout.addWidget(top)
-        return card
+    def _row_value(row, key, default=None):
+        """قراءة قيمة من dict أو SQLServerRow بنفس الطريقة."""
+        try:
+            return row[key]
+        except (KeyError, IndexError, TypeError, AttributeError):
+            try:
+                return getattr(row, key)
+            except AttributeError:
+                return default
 
     def _load_switches_into_combo(self, selected_building_id=None):
-        current_data = self.switch_combo.currentData()
+        selected = self.switch_combo.currentData() if hasattr(self, "switch_combo") else None
+        self.switch_combo.blockSignals(True)
         self.switch_combo.clear()
         self.switch_combo.addItem("غير مربوط بسويتش", None)
-
         switches = switches_choices()
-        # سويتشات نفس المبنى أولاً
-        same_b = [s for s in switches if selected_building_id and s["building_id"] == selected_building_id]
-        others = [s for s in switches if not (selected_building_id and s["building_id"] == selected_building_id)]
-
-        for s in same_b:
-            self.switch_combo.addItem(f"★ {s['name']} (نفس المبنى)", s["id"])
-
-        for s in others:
-            b_name = f" ({s['building_name']})" if s["building_name"] else ""
-            self.switch_combo.addItem(f"{s['name']}{b_name}", s["id"])
-
-        if current_data:
-            idx = self.switch_combo.findData(current_data)
+        same = [s for s in switches if selected_building_id and s["building_id"] == selected_building_id]
+        same_ids = {s["id"] for s in same}
+        other = [s for s in switches if s["id"] not in same_ids]
+        for s in same:
+            self.switch_combo.addItem(f" {s['name']} (نفس المبنى)", s["id"])
+        for s in other:
+            suffix = f" ({s['building_name']})" if self._row_value(s, "building_name") else ""
+            self.switch_combo.addItem(f"{s['name']}{suffix}", s["id"])
+        if selected is not None:
+            idx = self.switch_combo.findData(selected)
             if idx >= 0:
                 self.switch_combo.setCurrentIndex(idx)
+        self.switch_combo.blockSignals(False)
 
     def _building_changed(self):
-        b_id = self.building.currentData()
-        self._load_switches_into_combo(b_id)
+        if not self._loading:
+            self._load_switches_into_combo(self.building.currentData())
 
     def load_camera(self):
         c = self.camera
-        self.code.setText(c["camera_code"])
-        self.name.setText(c["name"] or "")
+        self._loading = True
+        self.code.setText(self._row_value(c, "camera_code") or "")
+        self.name.setText(self._row_value(c, "name") or "")
+        idx = self.building.findData(self._row_value(c, "building_id"))
+        if idx >= 0:
+            self.building.setCurrentIndex(idx)
+        self.location_detail.setText(self._row_value(c, "location_detail") or "")
+        self.placement.setCurrentIndex(max(0, self.placement.findData(self._row_value(c, "placement") or "")))
+        self.camera_type.setCurrentText(self._row_value(c, "camera_type") or "")
+        self.manufacturer.setText(self._row_value(c, "manufacturer") or "")
+        self.model.setText(self._row_value(c, "model") or "")
+        self.serial_number.setText(self._row_value(c, "serial_number") or "")
+        self.ip_address.setText(self._row_value(c, "ip_address") or "")
+        self._load_switches_into_combo(self._row_value(c, "building_id"))
+        idx = self.switch_combo.findData(self._row_value(c, "switch_id"))
+        if idx >= 0:
+            self.switch_combo.setCurrentIndex(idx)
+        self.switch_port.setText(self._row_value(c, "switch_port") or "")
+        set_optional_date(self.install_date, self._row_value(c, "install_date"))
+        set_optional_date(self.warranty_end, self._row_value(c, "warranty_end"))
+        self.status.setCurrentText(self._row_value(c, "status") or "تعمل")
+        self.notes.setPlainText(self._row_value(c, "notes") or "")
+        self._loading = False
 
-        index = self.building.findData(c["building_id"])
-        if index >= 0:
-            self.building.setCurrentIndex(index)
+    def _check_code_duplicate(self, show_message=False):
+        code = self.code.text().strip()
+        if not code:
+            return True
+        exclude_id = self._row_value(self.camera, "id", 0) if self.camera else 0
+        duplicate = fetch_one(
+            "SELECT TOP 1 id FROM cameras WHERE camera_code = ? AND id <> ? AND is_archived = 0",
+            (code, exclude_id),
+        )
+        if duplicate:
+            if show_message:
+                QMessageBox.warning(self, "كود مكرر", f"كود الكاميرا {code} مستخدم بالفعل.")
+            return False
+        return True
 
-        self.location_detail.setText(c["location_detail"] or "")
-        index = self.placement.findData(c["placement"] or "")
-        self.placement.setCurrentIndex(max(index, 0))
-        self.camera_type.setCurrentText(c["camera_type"] or "")
-        self.manufacturer.setText(c["manufacturer"] or "")
-        self.model.setText(c["model"] or "")
-        self.serial_number.setText(c["serial_number"] or "")
-        self.ip_address.setText(c["ip_address"] or "")
-
-        sw_idx = self.switch_combo.findData(c.get("switch_id"))
-        if sw_idx >= 0:
-            self.switch_combo.setCurrentIndex(sw_idx)
-
-        set_optional_date(self.install_date, c["install_date"])
-        set_optional_date(self.warranty_end, c["warranty_end"])
-
-        index = self.status.findText(c["status"] or "")
-        if index >= 0:
-            self.status.setCurrentIndex(index)
-
-        self.interval.setValue(int(c["maintenance_interval_days"] or 0))
-        self.notes.setPlainText(c["notes"] or "")
+    def _check_port_duplicate(self, show_message=False):
+        switch_id, port = self.switch_combo.currentData(), self.switch_port.text().strip()
+        if not switch_id or not port:
+            return True
+        exclude_id = self._row_value(self.camera, "id", 0) if self.camera else 0
+        duplicate = fetch_one(
+            "SELECT TOP 1 camera_code FROM cameras "
+            "WHERE switch_id = ? AND UPPER(LTRIM(RTRIM(switch_port))) = UPPER(?) "
+            "AND id <> ? AND is_archived = 0",
+            (switch_id, port, exclude_id),
+        )
+        if duplicate:
+            if show_message:
+                QMessageBox.warning(self, "منفذ مستخدم", f"المنفذ {port} مستخدم بالفعل في الكاميرا {duplicate['camera_code']}.")
+            return False
+        return True
 
     def validate_and_accept(self):
-        if not self.name.text().strip():
-            QMessageBox.warning(self, "تنبيه", "من فضلك اكتب اسم الكاميرا أو التسمية التعريفيّة.")
-            self.name.setFocus()
+        if not self._validate_step(0):
+            self.tabs.setCurrentIndex(0)
             return
-
-        serial = self.serial_number.text().strip()
-        if serial:
-            exclude_id = self.camera["id"] if self.camera else 0
-            duplicate = fetch_one(
-                """
-                SELECT TOP 1 camera_code FROM cameras
-                WHERE serial_number = ? AND id <> ? AND is_archived = 0
-                """,
-                (serial, exclude_id),
-            )
-            if duplicate:
-                QMessageBox.warning(
-                    self,
-                    "رقم تسلسلي مكرر",
-                    f"الرقم التسلسلي مسجل بالفعل للكاميرا {duplicate['camera_code']}.",
-                )
-                self.serial_number.setFocus()
-                return
-
-        self.accept()
+        if not self._validate_step(1):
+            self.tabs.setCurrentIndex(1)
+            return
+        preview = CameraPreviewDialog(
+            self, self.get_data(), self.building.currentText(), self.switch_combo.currentText()
+        )
+        if preview.exec() == QDialog.Accepted:
+            self.accept()
 
     def get_data(self):
         return {
-            "camera_code": self.code.text(),
+            "camera_code": self.code.text().strip(),
             "name": self.name.text().strip(),
             "building_id": self.building.currentData(),
             "location_detail": self.location_detail.text().strip(),
@@ -1481,13 +1651,68 @@ class CameraDialog(QDialog):
             "serial_number": self.serial_number.text().strip(),
             "ip_address": self.ip_address.text().strip(),
             "switch_id": self.switch_combo.currentData(),
-            "switch_port": None,
+            "switch_port": self.switch_port.text().strip() or None,
             "install_date": optional_date_text(self.install_date),
             "warranty_end": optional_date_text(self.warranty_end),
             "status": self.status.currentText(),
-            "maintenance_interval_days": self.interval.value() or None,
             "notes": self.notes.toPlainText().strip(),
         }
+
+
+class CameraPreviewDialog(QDialog):
+    def __init__(self, parent, data, building_text, switch_text):
+        super().__init__(parent)
+        self.setWindowTitle("مراجعة بيانات الكاميرا قبل الحفظ")
+        self.resize(650, 600)
+        self.setLayoutDirection(Qt.RightToLeft)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(20, 18, 20, 16)
+        root.setSpacing(12)
+        title = QLabel("راجع البيانات قبل الحفظ النهائي")
+        title.setStyleSheet("font-size:19px; font-weight:800; color:#0f2338;")
+        subtitle = QLabel("إذا كانت البيانات صحيحة اضغط اعتماد وحفظ، أو عدّلها بالضغط على رجوع")
+        subtitle.setStyleSheet("color:#64748b; font-size:11px;")
+        root.addWidget(title)
+        root.addWidget(subtitle)
+
+        def val(value):
+            return html.escape(str(value or "غير محدد"))
+
+        rows = [
+            ("كود الكاميرا", data.get("camera_code")),
+            ("الاسم التعريفي", data.get("name")),
+            ("المبنى / الفرع", building_text),
+            ("الموضع", data.get("location_detail")),
+            ("نوع الكاميرا", data.get("camera_type")),
+            ("التثبيت", data.get("placement")),
+            ("السويتش", switch_text),
+            ("منفذ السويتش", data.get("switch_port")),
+            ("عنوان IP", data.get("ip_address")),
+            ("الشركة / الموديل", f"{data.get('manufacturer') or 'غير محدد'} / {data.get('model') or 'غير محدد'}"),
+            ("الرقم التسلسلي", data.get("serial_number")),
+            ("الحالة", data.get("status")),
+            ("تاريخ التركيب", data.get("install_date")),
+            ("انتهاء الضمان", data.get("warranty_end")),
+            ("الملاحظات", data.get("notes")),
+        ]
+        rows_html = "".join(
+            f"<tr><td class='label'>{val(k)}</td><td>{val(v)}</td></tr>" for k, v in rows
+        )
+        view = QTextEdit()
+        view.setReadOnly(True)
+        view.setHtml(
+            "<style>body { color:#334155; } table { width:100%; } "
+            "td { padding:9px; border-bottom:1px solid #e2e8f0; } "
+            ".label { color:#64748b; font-weight:700; background:#f8fafc; width:34%; }</style>"
+            f"<table>{rows_html}</table>"
+        )
+        root.addWidget(view, 1)
+        buttons = QDialogButtonBox()
+        buttons.addButton("رجوع للتعديل", QDialogButtonBox.RejectRole)
+        buttons.addButton("اعتماد وحفظ", QDialogButtonBox.AcceptRole)
+        buttons.rejected.connect(self.reject)
+        buttons.accepted.connect(self.accept)
+        root.addWidget(buttons)
 
 
 # =============================================================
@@ -1495,7 +1720,7 @@ class CameraDialog(QDialog):
 # =============================================================
 
 class CameraFaultDialog(QDialog):
-    """تسجيل بلاغات الأعطال الفنية وربطها بقطع الغيار والفنيين."""
+    """تسجيل بلاغات الأعطال وربطها بقطع الغيار والفنيين."""
 
     def __init__(self, parent=None, fault=None, camera_id=None):
         super().__init__(parent)
@@ -1511,7 +1736,7 @@ class CameraFaultDialog(QDialog):
         root.setSpacing(14)
 
         header_box = QHBoxLayout()
-        icon = QLabel("⚠")
+        icon = QLabel("")
         icon.setStyleSheet("font-size: 26px; color: #c2410c; padding-left: 6px;")
         header_box.addWidget(icon)
 
@@ -1611,7 +1836,7 @@ class CameraFaultDialog(QDialog):
         root.addWidget(scroll, 1)
 
         btn_box = QHBoxLayout()
-        save_btn = QPushButton("💾  حفظ البلاغ")
+        save_btn = QPushButton("  حفظ البلاغ")
         save_btn.setObjectName("primaryGradientBtn")
         save_btn.setCursor(Qt.PointingHandCursor)
         save_btn.clicked.connect(self.validate_and_accept)
@@ -1747,93 +1972,19 @@ class CameraFaultDialog(QDialog):
 
 
 # =============================================================
-# نافذة صيانة وقائية
-# =============================================================
-
-class MaintenanceDialog(QDialog):
-    """نافذة سريعة لتسجيل الفحوصات والصيانة الوقائية."""
-
-    def __init__(self, parent=None, camera_name=""):
-        super().__init__(parent)
-        self.setWindowTitle("تسجيل صيانة وقائية")
-        self.resize(500, 380)
-        self.setLayoutDirection(Qt.RightToLeft)
-        self.setStyleSheet(CAMERAS_THEME_STYLE)
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(20, 18, 20, 16)
-        root.setSpacing(12)
-
-        title = QLabel(f"🛠 صيانة وقائية: {camera_name}")
-        title.setStyleSheet("font-size: 16px; font-weight: 800; color: #0891b2;")
-        root.addWidget(title)
-
-        form = QFormLayout()
-        form.setLabelAlignment(Qt.AlignRight)
-        form.setHorizontalSpacing(12)
-        form.setVerticalSpacing(10)
-
-        self.date = QDateEdit()
-        self.date.setCalendarPopup(True)
-        self.date.setDisplayFormat("yyyy-MM-dd")
-        self.date.setDate(QDate.currentDate())
-
-        self.kind = QComboBox()
-        self.kind.addItems(MAINTENANCE_TYPES)
-
-        self.technician = QLineEdit()
-        self.notes = QTextEdit()
-        self.notes.setFixedHeight(85)
-        self.notes.setPlaceholderText("ملاحظات الفحص، حالة العدسة والكيابل...")
-
-        form.addRow("تاريخ الفحص:", self.date)
-        form.addRow("نوع الصيانة:", self.kind)
-        form.addRow("الفني المنفذ:", self.technician)
-        form.addRow("نتائج وملاحظات:", self.notes)
-        root.addLayout(form)
-
-        root.addStretch()
-
-        btn_box = QHBoxLayout()
-        save_btn = QPushButton("💾  حفظ الفحص")
-        save_btn.setObjectName("primaryGradientBtn")
-        save_btn.setCursor(Qt.PointingHandCursor)
-        save_btn.clicked.connect(self.accept)
-
-        cancel_btn = QPushButton("إلغاء")
-        cancel_btn.setObjectName("moreOptionsBtn")
-        cancel_btn.setCursor(Qt.PointingHandCursor)
-        cancel_btn.clicked.connect(self.reject)
-
-        btn_box.addStretch()
-        btn_box.addWidget(cancel_btn)
-        btn_box.addWidget(save_btn)
-        root.addLayout(btn_box)
-
-    def get_data(self):
-        return {
-            "maintenance_date": self.date.date().toString("yyyy-MM-dd"),
-            "maintenance_type": self.kind.currentText(),
-            "technician": self.technician.text().strip(),
-            "notes": self.notes.toPlainText().strip(),
-        }
-
-
-# =============================================================
-# نافذة السجل التاريخي الشامل للكاميرا (Hero Banner & Spec Sheet)
+# نافذة السجل التاريخي للكاميرا (مواصفات + بلاغات)
 # =============================================================
 
 class CameraHistoryDialog(QDialog):
-    """سجل تاريخي شامل للكاميرا: بطاقة مواصفات، جدول أعطال، وصيانة وقائية."""
+    """ملف الكاميرا: بطاقة مواصفات وسجل البلاغات."""
 
-    def __init__(self, camera_id, parent=None, can_maintain=False, current_user=None):
+    def __init__(self, camera_id, parent=None, current_user=None):
         super().__init__(parent)
         self.camera_id = camera_id
-        self.can_maintain = can_maintain
         self.current_user = current_user or {}
 
         self.setWindowTitle("السجل التاريخي والملف الفني للكاميرا")
-        self.resize(1080, 720)
+        self.resize(1080, 680)
         self.setLayoutDirection(Qt.RightToLeft)
         self.setStyleSheet(CAMERAS_THEME_STYLE)
 
@@ -1841,7 +1992,6 @@ class CameraHistoryDialog(QDialog):
         root.setContentsMargins(18, 16, 18, 16)
         root.setSpacing(12)
 
-        # Hero Header Banner
         self.hero = QFrame()
         self.hero.setStyleSheet("""
             QFrame {
@@ -1859,7 +2009,6 @@ class CameraHistoryDialog(QDialog):
 
         root.addWidget(self.hero)
 
-        # شريط المواصفات التفصيلية (Spec Sheet Ribbon)
         self.specs_ribbon = QLabel("")
         self.specs_ribbon.setWordWrap(True)
         self.specs_ribbon.setStyleSheet("""
@@ -1872,35 +2021,20 @@ class CameraHistoryDialog(QDialog):
         """)
         root.addWidget(self.specs_ribbon)
 
-        # التبويبات الداخلية
-        tabs = QTabWidget()
-        tabs.setObjectName("mainTabs")
+        caption = QLabel("سجل الأعطال والإصلاحات")
+        caption.setStyleSheet("font-weight: 800; color: #0f2338; font-size: 14px;")
+        root.addWidget(caption)
 
         self.faults_table = make_table(
             ["رقم البلاغ", "التاريخ", "وصف العطل", "الأولوية", "الحالة",
              "الفني", "قطع الغيار", "تاريخ الإصلاح"],
             stretch_column=2,
         )
-        tabs.addTab(wrap_card(self.faults_table), "سجل الأعطال والإصلاحات")
+        root.addWidget(wrap_card(self.faults_table), 1)
 
-        self.maint_table = make_table(
-            ["تاريخ الصيانة", "نوع الصيانة الوقائية", "الفني", "ملاحظات الفحص"],
-            stretch_column=3,
-        )
-        tabs.addTab(wrap_card(self.maint_table), "سجل الصيانة الوقائية والفحوصات")
-
-        root.addWidget(tabs, 1)
-
-        # شريط الإجراءات السفلي
         footer = QHBoxLayout()
-        if can_maintain:
-            add_maint_btn = QPushButton("🛠  تسجيل صيانة وقائية جديدة")
-            add_maint_btn.setObjectName("primaryGradientBtn")
-            add_maint_btn.setCursor(Qt.PointingHandCursor)
-            add_maint_btn.clicked.connect(self.add_maintenance)
-            footer.addWidget(add_maint_btn)
 
-        print_single_btn = QPushButton("🖨  طباعة تقرير الكاميرا")
+        print_single_btn = QPushButton("  طباعة تقرير الكاميرا")
         print_single_btn.setObjectName("moreOptionsBtn")
         print_single_btn.setCursor(Qt.PointingHandCursor)
         print_single_btn.clicked.connect(self.print_single_camera_report)
@@ -1938,18 +2072,25 @@ class CameraHistoryDialog(QDialog):
 
         switch_display = "-"
         if camera["switch_name"]:
-            switch_display = f"🖧 {camera['switch_name']}"
+            switch_display = camera["switch_name"]
+            if camera["switch_port"]:
+                switch_display += f" — منفذ {camera['switch_port']}"
+
+        archived_badge = (
+            " &nbsp;<span style='background:#64748b; color:#fff; border-radius:8px; padding:2px 6px;'>مؤرشفة</span>"
+            if camera["is_archived"] else ""
+        )
 
         self.hero_info.setText(
             f"<div style='font-size:20px; font-weight:800; color:#ffffff;'>"
-            f"📹 {html.escape(camera['name'])}"
+            f" {html.escape(camera['name'])}"
             f"</div>"
             f"<div style='margin-top:6px; font-size:12px; color:#9be7f5;'>"
             f"كود: <b>{html.escape(camera['camera_code'])}</b> &nbsp;|&nbsp; "
             f"المبنى: <b>{html.escape(camera['building_name'] or 'بدون مبنى')}</b> &nbsp;|&nbsp; "
             f"<span style='background-color:{status_colors[1]}; color:{status_colors[0]}; border-radius:10px; padding:2px 8px; font-weight:700;'>"
             f"● {html.escape(status)}</span>"
-            f"{' &nbsp;<span style=\"background:#64748b; color:#fff; border-radius:8px; padding:2px 6px;\">مؤرشفة</span>' if camera['is_archived'] else ''}"
+            f"{archived_badge}"
             f"</div>"
         )
 
@@ -1964,11 +2105,9 @@ class CameraHistoryDialog(QDialog):
             f"<b>عنوان IP:</b> {v('ip_address')} &nbsp;|&nbsp; "
             f"<b>السويتش المتصل:</b> <span style='color:#0891b2; font-weight:700;'>{html.escape(switch_display)}</span><br>"
             f"<b>تاريخ التركيب:</b> {fmt_date(camera['install_date'])} &nbsp;|&nbsp; "
-            f"<b>انتهاء الضمان:</b> {fmt_date(camera['warranty_end'])} &nbsp;|&nbsp; "
-            f"<b>آخر صيانة وقائية:</b> {fmt_date(camera['last_maintenance_date'])}"
+            f"<b>انتهاء الضمان:</b> {fmt_date(camera['warranty_end'])}"
         )
 
-        # تحميل الأعطال
         faults = fetch_all("""
             SELECT fault_number, entry_date, fault_description, priority,
                    status, technician, spare_parts, repair_date, is_archived
@@ -1996,71 +2135,6 @@ class CameraHistoryDialog(QDialog):
             for col, it in enumerate(values):
                 self.faults_table.setItem(row, col, it)
 
-        # تحميل الصيانة الوقائية
-        maint = fetch_all("""
-            SELECT maintenance_date, maintenance_type, technician, notes
-            FROM camera_maintenance
-            WHERE camera_id = ?
-            ORDER BY maintenance_date DESC, id DESC
-        """, (self.camera_id,))
-
-        self.maint_table.setRowCount(0)
-        for m in maint:
-            row = self.maint_table.rowCount()
-            self.maint_table.insertRow(row)
-
-            values = [
-                make_item(fmt_date(m["maintenance_date"]), bold=True),
-                make_item(m["maintenance_type"]),
-                make_item(m["technician"]),
-                make_item((m["notes"] or "").replace("\n", " "), align_right=True),
-            ]
-            for col, it in enumerate(values):
-                self.maint_table.setItem(row, col, it)
-
-    def add_maintenance(self):
-        dialog = MaintenanceDialog(self, getattr(self, "camera_name", ""))
-        if dialog.exec() != QDialog.Accepted:
-            return
-
-        data = dialog.get_data()
-        connection = get_connection()
-        try:
-            cursor = connection.cursor()
-            cursor.execute("""
-                INSERT INTO camera_maintenance
-                    (camera_id, maintenance_date, maintenance_type, technician, notes)
-                VALUES (?, ?, ?, ?, ?)
-            """, (
-                self.camera_id, data["maintenance_date"],
-                data["maintenance_type"], data["technician"], data["notes"],
-            ))
-
-            cursor.execute("""
-                UPDATE cameras
-                SET last_maintenance_date = ?, updated_at = GETDATE()
-                WHERE id = ?
-                  AND (last_maintenance_date IS NULL OR last_maintenance_date < ?)
-            """, (data["maintenance_date"], self.camera_id, data["maintenance_date"]))
-
-            connection.commit()
-        except Exception as exc:
-            connection.rollback()
-            QMessageBox.critical(self, "خطأ", f"تعذر حفظ الصيانة:\n{exc}")
-            return
-        finally:
-            connection.close()
-
-        write_audit_log(
-            user=self.current_user,
-            action="إضافة",
-            module_name="الكاميرات",
-            record_id=self.camera_id,
-            description=f"صيانة وقائية للكاميرا: {data['maintenance_type']}",
-            new_values=data,
-        )
-        self.load()
-
     def print_single_camera_report(self):
         c = getattr(self, "camera_data", None)
         if not c:
@@ -2068,14 +2142,16 @@ class CameraHistoryDialog(QDialog):
 
         fault_rows = []
         for r in range(self.faults_table.rowCount()):
-            row_vals = [self.faults_table.item(r, col).text() for col in range(self.faults_table.columnCount())]
-            fault_rows.append(row_vals)
+            fault_rows.append([
+                self.faults_table.item(r, col).text()
+                for col in range(self.faults_table.columnCount())
+            ])
 
         headers = ["رقم البلاغ", "التاريخ", "وصف العطل", "الأولوية", "الحالة", "الفني", "قطع الغيار", "تاريخ الإصلاح"]
         summary = (
             f"الكاميرا: {c['camera_code']} — {c['name']} | "
-            f"المبنى: {c.get('building_name') or 'غير محدد'} | "
-            f"السويتش: {c.get('switch_name') or 'غير مربوط'} | "
+            f"المبنى: {c['building_name'] or 'غير محدد'} | "
+            f"السويتش: {c['switch_name'] or 'غير مربوط'} | "
             f"الحالة: {c['status']} | إجمالي البلاغات المسجلة: {len(fault_rows)}"
         )
 
@@ -2086,11 +2162,11 @@ class CameraHistoryDialog(QDialog):
 
 
 # =============================================================
-# صفحة إدارة الكاميرات والسويتشات الرئيسية (CamerasPage)
+# الصفحة الرئيسية (CamerasPage)
 # =============================================================
 
 class CamerasPage(QWidget):
-    """الصفحة الرئيسية لإدارة منظومة الكاميرات والسويتشات بالكامل بنمط تصميم منتج فائق التميز."""
+    """الصفحة الرئيسية: الكاميرات، السويتشات، وبلاغات الأعطال."""
 
     def __init__(self, current_user=None):
         super().__init__()
@@ -2099,7 +2175,6 @@ class CamerasPage(QWidget):
         self._camera_export = []
         self._switch_export = []
         self._fault_export = []
-        self._alerts = []
 
         ok, error = ensure_camera_tables()
 
@@ -2127,7 +2202,7 @@ class CamerasPage(QWidget):
             pass
 
         self.load_building_filter()
-        self.refresh_all()
+        self.refresh_all(notify=False)
 
     def dispose(self):
         """فصل إشارة الكاش قبل حذف الصفحة لتجنب استدعاء عناصر Qt المحذوفة."""
@@ -2155,6 +2230,8 @@ class CamerasPage(QWidget):
         can_reports = self.has_permission("cameras.reports")
 
         self.add_camera_button.setVisible(can_add)
+        self.edit_camera_button.setVisible(self.has_permission("cameras.edit"))
+        self.delete_camera_button.setVisible(self.has_permission("cameras.delete"))
         self.add_fault_button.setVisible(can_add)
         self.more_button.setVisible(can_reports or can_add)
         self.act_import.setVisible(can_add)
@@ -2163,7 +2240,6 @@ class CamerasPage(QWidget):
         for action in self.report_actions:
             action.setVisible(can_reports)
 
-        self.tabs.setTabVisible(4, can_reports)
         self.setEnabled(self.has_permission("cameras.view"))
 
     # =========================================================
@@ -2179,7 +2255,7 @@ class CamerasPage(QWidget):
         main.setContentsMargins(24, 20, 24, 20)
         main.setSpacing(14)
 
-        # 1. شريط الرأس الاستراتيجي (Executive Header)
+        # 1. الرأس
         header = QHBoxLayout()
         header.setSpacing(10)
 
@@ -2189,61 +2265,65 @@ class CamerasPage(QWidget):
         title_row = QHBoxLayout()
         title_row.setSpacing(8)
 
-        title = QLabel("إدارة ومراقبة الكاميرات والسويتشات")
+        title = QLabel("الكاميرات والسويتشات")
         title.setObjectName("headerTitle")
         title_row.addWidget(title)
-
-        live_tag = QLabel("● المنظومة متصلة")
-        live_tag.setObjectName("liveTag")
-        title_row.addWidget(live_tag)
         title_row.addStretch()
         title_box.addLayout(title_row)
 
-        subtitle = QLabel("منظومة مركزية لجرد وتوزيع الكاميرات، ربط السويتشات والمنافذ، إدارة الأعطال، والجاهزية التشغيلية")
+        subtitle = QLabel("جرد الكاميرات، ربطها بالسويتشات والمنافذ، ومتابعة الأعطال")
         subtitle.setObjectName("headerSubtitle")
         title_box.addWidget(subtitle)
 
         header.addLayout(title_box)
         header.addStretch()
 
-        # أزرار الإجراءات السريعة
         self.add_camera_button = QPushButton("＋  إضافة كاميرا")
         self.add_camera_button.setObjectName("primaryGradientBtn")
         self.add_camera_button.setCursor(Qt.PointingHandCursor)
         self.add_camera_button.clicked.connect(self.add_camera)
         header.addWidget(self.add_camera_button)
 
-        self.add_fault_button = QPushButton("⚠  تسجيل بلاغ عطل")
+        # أزرار التعديل والحذف تتحط في شريط أدوات الكاميرات (تتفعل عند اختيار صف)
+        self.edit_camera_button = QPushButton("✎  تعديل")
+        self.edit_camera_button.setObjectName("toolbarBtn")
+        self.edit_camera_button.setCursor(Qt.PointingHandCursor)
+        self.edit_camera_button.clicked.connect(self.edit_camera)
+
+        self.delete_camera_button = QPushButton("حذف")
+        self.delete_camera_button.setObjectName("toolbarDangerBtn")
+        self.delete_camera_button.setCursor(Qt.PointingHandCursor)
+        self.delete_camera_button.clicked.connect(self.delete_camera)
+
+        self.add_fault_button = QPushButton("  تسجيل بلاغ عطل")
         self.add_fault_button.setObjectName("accentWarningBtn")
         self.add_fault_button.setCursor(Qt.PointingHandCursor)
         self.add_fault_button.clicked.connect(lambda: self.add_fault())
         header.addWidget(self.add_fault_button)
 
-        # زر الخيارات الإضافية والقائمة المنسدلة
         self.more_button = QPushButton("خيارات متقدمة ▾")
         self.more_button.setObjectName("moreOptionsBtn")
         self.more_button.setCursor(Qt.PointingHandCursor)
 
         menu = QMenu(self.more_button)
-        self.act_refresh = menu.addAction("  ⟳ تحديث كافة البيانات")
+        self.act_refresh = menu.addAction("  ⟳ تحديث البيانات")
         self.act_refresh.triggered.connect(self.refresh_all)
         menu.addSeparator()
 
-        self.act_autolink = menu.addAction("  ⚡ إعادة ربط الكاميرات بالسويتشات تلقائيًا...")
+        self.act_autolink = menu.addAction("   إعادة ربط الكاميرات بالسويتشات تلقائيًا...")
         self.act_autolink.triggered.connect(self.auto_link_all_switches)
 
-        self.act_import = menu.addAction("  📥 استيراد توزيع الكاميرات الأولي (35 موقعًا)...")
+        self.act_import = menu.addAction("   استيراد توزيع الكاميرات الأولي (35 موقعًا)...")
         self.act_import.triggered.connect(self.import_initial_distribution)
 
         self.report_actions = []
         menu.addSeparator()
 
         for text, handler in (
-            ("  📊 تصدير Excel شامل (الكاميرات + السويتشات + البلاغات)", self.export_excel),
-            ("  🖨 طباعة جرد الكاميرات", self.print_inventory),
-            ("  🖧 طباعة تقرير السويتشات والشبكة", self.print_switches),
-            ("  📋 طباعة بلاغات الأعطال", self.print_faults),
-            ("  🚨 طباعة مركز التنبيهات", self.print_alerts),
+            ("   تصدير Excel (الكاميرات + السويتشات + البلاغات)", self.export_excel),
+            ("   طباعة جرد الكاميرات", self.print_inventory),
+            ("   طباعة تقرير السويتشات", self.print_switches),
+            ("   طباعة بلاغات الأعطال", self.print_faults),
         ):
             action = menu.addAction(text)
             action.triggered.connect(handler)
@@ -2254,36 +2334,32 @@ class CamerasPage(QWidget):
 
         main.addLayout(header)
 
-        # 2. بطاقات الإحصائيات التفاعلية (Interactive KPI Metric Deck)
+        # 2. بطاقات الإحصائيات
         stats_layout = QHBoxLayout()
         stats_layout.setSpacing(12)
 
         self.stat_cards = {}
         deck_configs = [
-            ("total", "إجمالي الكاميرات", "0", "#0891b2", "📹", lambda: self._drilldown_status("الكل")),
-            ("working", "تعمل بكفاءة", "0", "#10b981", "✓", lambda: self._drilldown_status("تعمل")),
-            ("switches", "السويتشات المتصلة", "0", "#0e7490", "🖧", lambda: self.tabs.setCurrentIndex(1)),
-            ("maintenance", "تحت الصيانة", "0", "#f59e0b", "⚙", lambda: self._drilldown_status("تحت الصيانة")),
-            ("stopped", "متوقفة عن العمل", "0", "#ef4444", "✕", lambda: self._drilldown_status("متوقفة")),
-            ("open_faults", "بلاغات مفتوحة", "0", "#6366f1", "⚠", self._drilldown_open_faults),
-            ("alerts", "مركز التنبيهات", "0", "#f43f5e", "🚨", self._drilldown_alerts),
+            ("total", "إجمالي الكاميرات", "#0891b2", lambda: self._drilldown_status("الكل")),
+            ("working", "تعمل", "#10b981", lambda: self._drilldown_status("تعمل")),
+            ("stopped", "متوقفة", "#ef4444", lambda: self._drilldown_status("متوقفة")),
+            ("switches", "السويتشات", "#0e7490", lambda: self.tabs.setCurrentIndex(1)),
+            ("open_faults", "بلاغات مفتوحة", "#6366f1", self._drilldown_open_faults),
         ]
 
-        for key, lbl, val, color, ic, fn in deck_configs:
-            card = ProMetricCard(lbl, val, accent=color, icon=ic, on_click=fn)
+        for key, lbl, color, fn in deck_configs:
+            card = ProMetricCard(lbl, "0", accent=color, on_click=fn)
             stats_layout.addWidget(card, 1)
             self.stat_cards[key] = card
 
         main.addLayout(stats_layout)
 
-        # 3. التبويبات الرئيسية بتصميم حديث
+        # 3. التبويبات
         self.tabs = QTabWidget()
         self.tabs.setObjectName("mainTabs")
         self.tabs.addTab(self._build_cameras_tab(), "الكاميرات")
         self.tabs.addTab(self._build_switches_tab(), "السويتشات والشبكة")
         self.tabs.addTab(self._build_faults_tab(), "بلاغات الأعطال")
-        self.tabs.addTab(self._build_alerts_tab(), "مركز التنبيهات الذكي")
-        self.tabs.addTab(self._build_reports_tab(), "التقارير ومؤشرات الجاهزية")
         main.addWidget(self.tabs, 1)
 
         # 4. شريط الإشعارات المؤقت
@@ -2303,12 +2379,12 @@ class CamerasPage(QWidget):
         self._search_timer.timeout.connect(self._reload_lists)
 
     def show_notice(self, message):
-        self.notice.setText(f"✓  {message}")
+        self.notice.setText(f"  {message}")
         self.notice.setVisible(True)
         self._notice_timer.start()
 
     # =========================================================
-    # تفاعلات النقر على البطاقات (Drilldowns)
+    # تفاعلات النقر على البطاقات
     # =========================================================
 
     def _drilldown_status(self, status_text):
@@ -2324,11 +2400,8 @@ class CamerasPage(QWidget):
         self.tabs.setCurrentIndex(2)
         self.flt_status_filter.setCurrentIndex(1)  # "المفتوحة فقط"
 
-    def _drilldown_alerts(self):
-        self.tabs.setCurrentIndex(3)
-
     # =========================================================
-    # التبويب الأول: الكاميرات (الجدول الشامل)
+    # التبويب الأول: الكاميرات
     # =========================================================
 
     def _build_cameras_tab(self):
@@ -2346,7 +2419,7 @@ class CamerasPage(QWidget):
         self.cam_search = QLineEdit()
         self.cam_search.setObjectName("searchBox")
         self.cam_search.setClearButtonEnabled(True)
-        self.cam_search.setPlaceholderText("🔍  بحث بالكود، الاسم، الموديل، السيريال، IP، أو السويتش...")
+        self.cam_search.setPlaceholderText("  بحث بالكود، الاسم، الموديل، السيريال، IP، أو السويتش...")
         self.cam_search.textChanged.connect(lambda *_: self._search_timer.start())
         b_layout.addWidget(self.cam_search, 2)
 
@@ -2373,18 +2446,24 @@ class CamerasPage(QWidget):
         self.show_archived.toggled.connect(self.load_cameras)
         b_layout.addWidget(self.show_archived)
 
-# إضافة شريط الفلاتر إلى واجهة تبويب الكاميرات
+        # فاصل خفيف ثم أزرار الإجراء على الصف المحدد
+        sep = QFrame()
+        sep.setFrameShape(QFrame.VLine)
+        sep.setStyleSheet("color: #e2e8f0;")
+        b_layout.addWidget(sep)
+        b_layout.addWidget(self.edit_camera_button)
+        b_layout.addWidget(self.delete_camera_button)
+
         layout.addWidget(bar)
 
-
-
-        # الجدول الشامل (Master Table View)
         self.cam_master_table = make_table([
             "الكود", "اسم الكاميرا", "المبنى / الفرع", "الموضع التفصيلي", "السويتش", "التثبيت والنوع",
             "الشركة والموديل", "IP", "الحالة التشغيلية", "انتهاء الضمان", "الأعطال",
         ], stretch_column=1)
         self.cam_master_table.doubleClicked.connect(lambda *_: self.show_history())
         self.cam_master_table.customContextMenuRequested.connect(self.camera_menu)
+        self.cam_master_table.itemSelectionChanged.connect(self._update_camera_buttons)
+        self._update_camera_buttons()
 
         layout.addWidget(wrap_card(self.cam_master_table), 1)
 
@@ -2395,7 +2474,7 @@ class CamerasPage(QWidget):
         return tab
 
     # =========================================================
-    # التبويب الثاني: السويتشات والبنية الشبكية (Switches Tab)
+    # التبويب الثاني: السويتشات والشبكة
     # =========================================================
 
     def _build_switches_tab(self):
@@ -2413,8 +2492,8 @@ class CamerasPage(QWidget):
         self.sw_search = QLineEdit()
         self.sw_search.setObjectName("searchBox")
         self.sw_search.setClearButtonEnabled(True)
-        self.sw_search.setPlaceholderText("🔍  بحث باسم السويتش، الكود، الموديل، المبنى، أو عنوان IP...")
-        self.sw_search.textChanged.connect(lambda *_: self.load_switches())
+        self.sw_search.setPlaceholderText("  بحث باسم السويتش، الكود، الموديل، المبنى، أو عنوان IP...")
+        self.sw_search.textChanged.connect(lambda *_: self._search_timer.start())
         b_layout.addWidget(self.sw_search, 2)
 
         self.sw_building_filter = QComboBox()
@@ -2433,11 +2512,11 @@ class CamerasPage(QWidget):
         self.sw_show_archived.toggled.connect(self.load_switches)
         b_layout.addWidget(self.sw_show_archived)
 
-        add_sw_btn = QPushButton("＋ إضافة سويتش")
-        add_sw_btn.setObjectName("primaryGradientBtn")
-        add_sw_btn.setCursor(Qt.PointingHandCursor)
-        add_sw_btn.clicked.connect(self.add_switch)
-        b_layout.addWidget(add_sw_btn)
+        self.add_switch_button = QPushButton("＋ إضافة سويتش")
+        self.add_switch_button.setObjectName("primaryGradientBtn")
+        self.add_switch_button.setCursor(Qt.PointingHandCursor)
+        self.add_switch_button.clicked.connect(self.add_switch)
+        b_layout.addWidget(self.add_switch_button)
 
         layout.addWidget(bar)
 
@@ -2477,7 +2556,7 @@ class CamerasPage(QWidget):
         self.flt_search = QLineEdit()
         self.flt_search.setObjectName("searchBox")
         self.flt_search.setClearButtonEnabled(True)
-        self.flt_search.setPlaceholderText("🔍  بحث برقم البلاغ، الكاميرا، وصف العطل، أو الفني...")
+        self.flt_search.setPlaceholderText("  بحث برقم البلاغ، الكاميرا، وصف العطل، أو الفني...")
         self.flt_search.textChanged.connect(lambda *_: self._search_timer.start())
         b_layout.addWidget(self.flt_search, 2)
 
@@ -2520,101 +2599,6 @@ class CamerasPage(QWidget):
         return tab
 
     # =========================================================
-    # التبويب الرابع: مركز التنبيهات الذكي
-    # =========================================================
-
-    def _build_alerts_tab(self):
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(12, 14, 12, 12)
-        layout.setSpacing(10)
-
-        chips_frame = QFrame()
-        chips_frame.setObjectName("modernToolbar")
-        chips_layout = QHBoxLayout(chips_frame)
-        chips_layout.setContentsMargins(12, 8, 12, 8)
-        chips_layout.setSpacing(8)
-
-        self.alert_category_filter = QComboBox()
-        self.alert_category_filter.setObjectName("filterCombo")
-        self.alert_category_filter.addItem("جميع فئات التنبيهات", None)
-        self.alert_category_filter.addItem("🚨 أعطال عاجلة وحرجة", "عطل عاجل")
-        self.alert_category_filter.addItem("⏱ بلاغات متأخرة تجاوزت المهلة", "بلاغ متأخر")
-        self.alert_category_filter.addItem("🛠 صيانة وقائية مستحقة", "صيانة وقائية")
-        self.alert_category_filter.addItem("🔄 كاميرات متكررة الأعطال", "كثيرة الأعطال")
-        self.alert_category_filter.addItem("🛡 ضمان قارب على الانتهاء", "ضمان ينتهي")
-        self.alert_category_filter.currentIndexChanged.connect(self._filter_alerts_display)
-        chips_layout.addWidget(QLabel("تصفية التنبيهات:"))
-        chips_layout.addWidget(self.alert_category_filter)
-        chips_layout.addStretch()
-
-        layout.addWidget(chips_frame)
-
-        self.alerts_table = make_table(
-            ["مستوى الخطورة", "نوع التنبيه", "الكاميرا والموقع", "التفاصيل والسبب", "الإجراء المقترح"],
-            stretch_column=3,
-        )
-        self.alerts_table.doubleClicked.connect(self._alert_double_clicked)
-        layout.addWidget(wrap_card(self.alerts_table), 1)
-
-        hint = QLabel("💡 انقر نقرًا مزدوجًا على أي تنبيه للانتقال الفوري إلى السجل التاريخي والتفاصيل الكاملة للكاميرا.")
-        hint.setStyleSheet("color: #64748b; font-size: 11px;")
-        layout.addWidget(hint)
-
-        return tab
-
-    # =========================================================
-    # التبويب الخامس: التقارير ومؤشرات الجاهزية التشغيلية
-    # =========================================================
-
-    def _build_reports_tab(self):
-        tab = QWidget()
-        layout = QVBoxLayout(tab)
-        layout.setContentsMargins(12, 14, 12, 12)
-        layout.setSpacing(12)
-
-        kpi_grid = QHBoxLayout()
-        kpi_grid.setSpacing(12)
-
-        self.rep_uptime_card = ProMetricCard("معدل الجاهزية العامة", "0%", "نسبة الكاميرات العاملة", "#10b981", "📈")
-        self.rep_mttr_card = ProMetricCard("متوسط زمن الإصلاح", "-", "Mean Time to Repair", "#0891b2", "⏱")
-        self.rep_parts_card = ProMetricCard("استهلاك قطع الغيار", "0", "بلاغات استلزمت قطعًا", "#6366f1", "📦")
-        self.rep_maint_card = ProMetricCard("الصيانة الوقائية", "0", "إجمالي الفحوصات المنفذة", "#f59e0b", "🛠")
-
-        kpi_grid.addWidget(self.rep_uptime_card)
-        kpi_grid.addWidget(self.rep_mttr_card)
-        kpi_grid.addWidget(self.rep_parts_card)
-        kpi_grid.addWidget(self.rep_maint_card)
-        layout.addLayout(kpi_grid)
-
-        caption_box = QHBoxLayout()
-        caption = QLabel("أكثر الكاميرات تسجيلاً للأعطال (تحليل الاعتمادية والأثر)")
-        caption.setStyleSheet("font-weight: 800; color: #0f2338; font-size: 14px;")
-        caption_box.addWidget(caption)
-        caption_box.addStretch()
-
-        export_btn = QPushButton("📊 تصدير Excel شامل")
-        export_btn.setStyleSheet("""
-            QPushButton {
-                background: #f1f5f9; color: #0f2338; border: 1px solid #cbd5e1;
-                border-radius: 8px; padding: 6px 14px; font-weight: 700;
-            }
-            QPushButton:hover { background: #e2e8f0; }
-        """)
-        export_btn.clicked.connect(self.export_excel)
-        caption_box.addWidget(export_btn)
-
-        layout.addLayout(caption_box)
-
-        self.top_table = make_table(
-            ["الترتيب", "كود الكاميرا", "اسم الكاميرا", "المبنى / الموقع", "عدد الأعطال", "تاريخ آخر عطل"],
-            stretch_column=2,
-        )
-        layout.addWidget(wrap_card(self.top_table), 1)
-
-        return tab
-
-    # =========================================================
     # تحميل الفلاتر والبيانات
     # =========================================================
 
@@ -2626,6 +2610,8 @@ class CamerasPage(QWidget):
             return
 
         current = self.cam_building_filter.currentData()
+        current_sw = self.sw_building_filter.currentData()
+
         self.cam_building_filter.blockSignals(True)
         self.cam_building_filter.clear()
         self.cam_building_filter.addItem("كل المباني والفروع", None)
@@ -2640,12 +2626,12 @@ class CamerasPage(QWidget):
             self.cam_building_filter.addItem(label, unit["id"])
             self.cam_building_filter.setItemData(cam_index, unit["name"], Qt.UserRole + 1)
 
-            sw_index = self.sw_building_filter.count()
             self.sw_building_filter.addItem(label, unit["id"])
-            self.sw_building_filter.setItemData(sw_index, unit["name"], Qt.UserRole + 1)
 
         index = self.cam_building_filter.findData(current) if current else -1
         self.cam_building_filter.setCurrentIndex(max(index, 0))
+        index = self.sw_building_filter.findData(current_sw) if current_sw else -1
+        self.sw_building_filter.setCurrentIndex(max(index, 0))
         self.cam_building_filter.blockSignals(False)
         self.sw_building_filter.blockSignals(False)
 
@@ -2654,31 +2640,16 @@ class CamerasPage(QWidget):
         self.load_switches()
         self.load_faults()
 
-    def refresh_all(self):
+    def refresh_all(self, notify=True):
         self.load_cameras()
         self.load_switches()
         self.load_faults()
-        self.load_alerts()
-        self.load_reports()
         self.load_stats()
-        self.show_notice("تم تحديث كافة بيانات المنظومة بنجاح")
-
-    @staticmethod
-    def _next_due(camera):
-        interval = int(camera["maintenance_interval_days"] or 0)
-        if interval <= 0:
-            return None
-        base = (
-            to_date(camera["last_maintenance_date"])
-            or to_date(camera["install_date"])
-            or to_date(camera["created_at"])
-        )
-        if not base:
-            return None
-        return date.fromordinal(base.toordinal() + interval)
+        if notify:
+            self.show_notice("تم تحديث البيانات")
 
     # =========================================================
-    # تحميل الكاميرات في الجدول الشامل
+    # تحميل الكاميرات
     # =========================================================
 
     def load_cameras(self, *_args):
@@ -2738,6 +2709,8 @@ class CamerasPage(QWidget):
 
         for c in rows:
             switch_str = c["switch_name"] or "-"
+            if c["switch_name"] and c["switch_port"]:
+                switch_str = f"{c['switch_name']} — {c['switch_port']}"
 
             self._camera_export.append([
                 c["camera_code"], c["name"], c["building_name"] or "",
@@ -2745,8 +2718,7 @@ class CamerasPage(QWidget):
                 c["camera_type"] or "", c["manufacturer"] or "", c["model"] or "",
                 c["serial_number"] or "", c["ip_address"] or "",
                 c["status"] or "", fmt_date(c["install_date"]),
-                fmt_date(c["warranty_end"]), fmt_date(c["last_maintenance_date"]),
-                c["faults_count"],
+                fmt_date(c["warranty_end"]), c["faults_count"],
             ])
 
             t_row = self.cam_master_table.rowCount()
@@ -2760,13 +2732,17 @@ class CamerasPage(QWidget):
                 make_item(c["name"], bold=True, align_right=True),
                 make_item(c["building_name"] or "-", align_right=True),
                 make_item(c["location_detail"] or "-", align_right=True),
-                make_item(switch_str, align_right=True, tooltip=f"كود: {c['switch_code']}" if c["switch_code"] else "غير مربوط بسويتش"),
+                make_item(switch_str, align_right=True,
+                          tooltip=f"كود: {c['switch_code']}" if c["switch_code"] else "غير مربوط بسويتش"),
                 make_item(f"{c['placement'] or ''} {c['camera_type'] or ''}".strip() or "-"),
                 make_item(f"{c['manufacturer'] or ''} {c['model'] or ''}".strip() or "-"),
                 make_item(c["ip_address"] or "-"),
                 make_item(f"● {st}", c_colors),
                 make_item(fmt_date(c["warranty_end"])),
-                make_item(f"{c['open_count']} مفتوح" if c["open_count"] else (f"{c['faults_count']} سابق" if c["faults_count"] else "سليم")),
+                make_item(
+                    f"{c['open_count']} مفتوح" if c["open_count"]
+                    else (f"{c['faults_count']} سابق" if c["faults_count"] else "سليم")
+                ),
             ]
             for col_idx, item in enumerate(m_values):
                 item.setData(Qt.UserRole, int(c["id"]))
@@ -2776,12 +2752,8 @@ class CamerasPage(QWidget):
 
         working_total = sum(1 for c in rows if c["status"] == "تعمل")
         total_cameras = len(rows)
-        pct = int(working_total / total_cameras * 100) if total_cameras else 100
 
-        self.cam_count.setText(
-            f"إجمالي النتائج: {total_cameras} كاميرا   •   "
-            f"الجاهزية: {working_total} تعمل ({pct}%)"
-        )
+        self.cam_count.setText(f"إجمالي النتائج: {total_cameras} كاميرا   •   تعمل: {working_total}")
         self.tabs.setTabText(0, f"الكاميرات ({total_cameras})")
 
     # =========================================================
@@ -2830,7 +2802,12 @@ class CamerasPage(QWidget):
             role_colors = SWITCH_ROLE_COLORS.get(role, ("#334155", "#f1f5f9", "#cbd5e1"))
 
             status = s["status"] or "يعمل"
-            status_colors = ("#065f46", "#ecfdf5") if status == "يعمل" else (("#92400e", "#fffbeb") if status == "تحت الصيانة" else ("#991b1b", "#fef2f2"))
+            if status == "يعمل":
+                status_colors = ("#065f46", "#ecfdf5")
+            elif status == "تحت الصيانة":
+                status_colors = ("#92400e", "#fffbeb")
+            else:
+                status_colors = ("#991b1b", "#fef2f2")
 
             cams_count = s["cameras_count"] or 0
             cams_chip = f"{cams_count} كاميرا" if cams_count else "لا توجد كاميرات"
@@ -2867,12 +2844,11 @@ class CamerasPage(QWidget):
         total_linked = sum(s["cameras_count"] or 0 for s in rows)
 
         self.sw_count.setText(
-            f"إجمالي السويتشات: {total_sw} سويتش   •   "
-            f"سويتشات الكاميرات: {cam_sw} سويتش   •   "
-            f"إجمالي الكاميرات المربوطة بالسويتشات: {total_linked} كاميرا"
+            f"إجمالي السويتشات: {total_sw}   •   "
+            f"سويتشات الكاميرات: {cam_sw}   •   "
+            f"الكاميرات المربوطة: {total_linked}"
         )
         self.tabs.setTabText(1, f"السويتشات والشبكة ({total_sw})")
-        self.stat_cards["switches"].set_value(total_sw, f"{total_linked} كاميرا مربوطة")
 
     def _selected_switch_id(self):
         rows = self.sw_table.selectionModel().selectedRows() if self.sw_table.selectionModel() else []
@@ -2889,19 +2865,20 @@ class CamerasPage(QWidget):
         archived = self.sw_show_archived.isChecked()
         menu = QMenu(self)
 
-        menu.addAction("🔗 ربط وتعيين كاميرات لهذا السويتش").triggered.connect(
-            lambda: self.open_switch_link_dialog(sw_id)
-        )
         if self.has_permission("cameras.edit") and not archived:
-            menu.addAction("✏ تعديل بيانات السويتش").triggered.connect(self.edit_switch)
+            menu.addAction(" ربط وتعيين كاميرات لهذا السويتش").triggered.connect(
+                lambda: self.open_switch_link_dialog(sw_id)
+            )
+            menu.addAction(" تعديل بيانات السويتش").triggered.connect(self.edit_switch)
 
         if self.has_permission("cameras.delete"):
             menu.addSeparator()
             menu.addAction(
-                "♻ استرجاع من الأرشيف" if archived else "📦 أرشفة السويتش"
+                " استرجاع من الأرشيف" if archived else " أرشفة السويتش"
             ).triggered.connect(self.toggle_archive_switch)
 
-        menu.exec(self.sw_table.viewport().mapToGlobal(pos))
+        if not menu.isEmpty():
+            menu.exec(self.sw_table.viewport().mapToGlobal(pos))
 
     def _next_switch_code(self):
         row = fetch_one("""
@@ -2956,9 +2933,14 @@ class CamerasPage(QWidget):
         )
 
         self.load_switches()
+        self.load_stats()
         self.show_notice(f"تمت إضافة السويتش {data['switch_code']}")
 
     def edit_switch(self):
+        if not self.has_permission("cameras.edit"):
+            QMessageBox.warning(self, "غير مسموح", "ليس لديك صلاحية تعديل السويتشات.")
+            return
+
         sw_id = self._selected_switch_id()
         if not sw_id:
             QMessageBox.information(self, "تنبيه", "يرجى تحديد سويتش أولاً.")
@@ -3006,6 +2988,10 @@ class CamerasPage(QWidget):
         self.show_notice(f"تم تعديل السويتش {old['switch_code']}")
 
     def toggle_archive_switch(self):
+        if not self.has_permission("cameras.delete"):
+            QMessageBox.warning(self, "غير مسموح", "ليس لديك صلاحية الأرشفة.")
+            return
+
         sw_id = self._selected_switch_id()
         if not sw_id:
             return
@@ -3030,16 +3016,28 @@ class CamerasPage(QWidget):
         finally:
             conn.close()
 
+        write_audit_log(
+            user=self.current_user,
+            action="استرجاع" if restoring else "أرشفة",
+            module_name="السويتشات", record_id=sw_id,
+            description=f"{'استرجاع' if restoring else 'أرشفة'} السويتش {sw['switch_code']}",
+        )
+
         self.load_switches()
         self.load_cameras()
+        self.load_stats()
         self.show_notice(f"تم {'استرجاع' if restoring else 'أرشفة'} {sw['switch_code']}")
 
     def open_switch_link_dialog(self, switch_id):
         dialog = SwitchLinkCamerasDialog(switch_id, self)
         if dialog.exec() == QDialog.Accepted:
+            write_audit_log(
+                user=self.current_user, action="تعديل", module_name="السويتشات",
+                record_id=switch_id, description="تحديث ربط الكاميرات بالسويتش",
+            )
             self.load_switches()
             self.load_cameras()
-            self.show_notice("تم تحديث ربط الكاميرات بالسويتش بنجاح")
+            self.show_notice("تم تحديث ربط الكاميرات بالسويتش")
 
     def auto_link_all_switches(self):
         ans = QMessageBox.question(
@@ -3145,252 +3143,40 @@ class CamerasPage(QWidget):
         self.tabs.setTabText(2, f"بلاغات الأعطال ({open_in_list} مفتوح)" if open_in_list else "بلاغات الأعطال")
 
     # =========================================================
-    # تجميع وتحميل التنبيهات الذكية
-    # =========================================================
-
-    def collect_alerts(self):
-        alerts = []
-        closed = CLOSED_STATUSES
-
-        for r in fetch_all("""
-            SELECT f.fault_number, f.priority, f.entry_date, f.camera_id,
-                   c.camera_code, c.name, b.name as building_name
-            FROM camera_faults f
-            JOIN cameras c ON c.id = f.camera_id
-            LEFT JOIN buildings b ON c.building_id = b.id
-            WHERE f.is_archived = 0 AND c.is_archived = 0
-              AND f.status NOT IN (?, ?) AND f.priority IN (?, ?)
-            ORDER BY f.entry_date
-        """, (*closed, *URGENT_PRIORITIES)):
-            alerts.append((
-                "عالية", "عطل عاجل",
-                f"{r['camera_code']} — {r['name']} ({r['building_name'] or 'بدون مبنى'})",
-                f"بلاغ عطل {r['fault_number']} بدرجة أولوية [{r['priority']}] مفتوح منذ {fmt_date(r['entry_date'])}",
-                "فتح البلاغ والمعالجة ↗",
-                r["camera_id"],
-            ))
-
-        for r in fetch_all("""
-            SELECT f.fault_number, f.entry_date, f.camera_id,
-                   DATEDIFF(day, f.entry_date, GETDATE()) AS age_days,
-                   c.camera_code, c.name, b.name as building_name
-            FROM camera_faults f
-            JOIN cameras c ON c.id = f.camera_id
-            LEFT JOIN buildings b ON c.building_id = b.id
-            WHERE f.is_archived = 0 AND c.is_archived = 0
-              AND f.status NOT IN (?, ?)
-              AND f.entry_date < DATEADD(day, ?, GETDATE())
-            ORDER BY f.entry_date
-        """, (*closed, -OVERDUE_DAYS)):
-            alerts.append((
-                "متوسطة", "بلاغ متأخر",
-                f"{r['camera_code']} — {r['name']}",
-                f"بلاغ {r['fault_number']} معلق بدون إغلاق منذ {r['age_days']} يومًا (تجاوز مهلة {OVERDUE_DAYS} أيام)",
-                "متابعة مسار الإصلاح ↗",
-                r["camera_id"],
-            ))
-
-        today = date.today()
-        soon = date.fromordinal(today.toordinal() + PREVENTIVE_SOON_DAYS)
-
-        for c in fetch_all("""
-            SELECT id, camera_code, name, maintenance_interval_days,
-                   last_maintenance_date, install_date, created_at
-            FROM cameras
-            WHERE is_archived = 0 AND status <> ?
-              AND maintenance_interval_days > 0
-        """, ("مستبعدة",)):
-            due = self._next_due(c)
-            if due and due <= soon:
-                late = (today - due).days
-                is_overdue = (late > 0)
-                alerts.append((
-                    "عالية" if is_overdue else "تنبيه",
-                    "صيانة وقائية",
-                    f"{c['camera_code']} — {c['name']}",
-                    f"الصيانة الدورية متأخرة {late} يومًا (موعدها {due:%Y-%m-%d})" if is_overdue else f"صيانة دورية مستحقة خلال {abs(late)} أيام ({due:%Y-%m-%d})",
-                    "تنفيذ وتسجيل الفحص ↗",
-                    c["id"],
-                ))
-
-        for r in fetch_all("""
-            SELECT c.id, c.camera_code, c.name, COUNT(*) AS n
-            FROM camera_faults f JOIN cameras c ON c.id = f.camera_id
-            WHERE f.is_archived = 0 AND c.is_archived = 0
-              AND f.entry_date >= DATEADD(day, ?, GETDATE())
-            GROUP BY c.id, c.camera_code, c.name
-            HAVING COUNT(*) >= ?
-            ORDER BY COUNT(*) DESC
-        """, (-FREQUENT_FAULTS_DAYS, FREQUENT_FAULTS_MIN)):
-            alerts.append((
-                "متوسطة", "كثيرة الأعطال",
-                f"{r['camera_code']} — {r['name']}",
-                f"سجلت الكاميرا {r['n']} أعطال خلال آخر {FREQUENT_FAULTS_DAYS} يوم — يُنصح بالفحص الموقعي أو استبدال الكاميرا",
-                "مراجعة السجل الفني ↗",
-                r["id"],
-            ))
-
-        for r in fetch_all("""
-            SELECT id, camera_code, name, warranty_end
-            FROM cameras
-            WHERE is_archived = 0 AND warranty_end IS NOT NULL
-              AND warranty_end BETWEEN CAST(GETDATE() AS DATE)
-                  AND DATEADD(day, ?, CAST(GETDATE() AS DATE))
-            ORDER BY warranty_end
-        """, (WARRANTY_WARN_DAYS,)):
-            alerts.append((
-                "تنبيه", "ضمان ينتهي",
-                f"{r['camera_code']} — {r['name']}",
-                f"فترة الضمان تنتهي قريبًا في {fmt_date(r['warranty_end'])}",
-                "فحص شامل قبل الضمان ↗",
-                r["id"],
-            ))
-
-        order_map = {"عالية": 0, "متوسطة": 1, "تنبيه": 2}
-        alerts.sort(key=lambda a: order_map.get(a[0], 9))
-        return alerts
-
-    def load_alerts(self):
-        self._alerts = self.collect_alerts()
-        self._filter_alerts_display()
-        self.stat_cards["alerts"].set_value(len(self._alerts))
-        self.tabs.setTabText(
-            3,
-            f"مركز التنبيهات ({len(self._alerts)})" if self._alerts else "مركز التنبيهات الذكي",
-        )
-
-    def _filter_alerts_display(self):
-        selected_category = self.alert_category_filter.currentData()
-        filtered = [
-            a for a in self._alerts
-            if not selected_category or a[1] == selected_category
-        ]
-
-        self.alerts_table.setRowCount(0)
-        for severity, kind, camera, detail, action_hint, camera_id in filtered:
-            row = self.alerts_table.rowCount()
-            self.alerts_table.insertRow(row)
-
-            items = [
-                make_item(f"● {severity}", SEVERITY_COLORS.get(severity)),
-                make_item(kind, bold=True),
-                make_item(camera, align_right=True),
-                make_item(detail, align_right=True),
-                make_item(action_hint, bold=True),
-            ]
-            for col, it in enumerate(items):
-                it.setData(Qt.UserRole, camera_id)
-                self.alerts_table.setItem(row, col, it)
-
-    def _alert_double_clicked(self, index):
-        item = self.alerts_table.item(index.row(), 0)
-        camera_id = item.data(Qt.UserRole) if item else None
-        if camera_id:
-            self._open_history(int(camera_id))
-
-    # =========================================================
-    # الإحصائيات والتقارير التنفيذية
+    # الإحصائيات
     # =========================================================
 
     def load_stats(self):
         stats = fetch_one("""
-            SELECT
-                COUNT(*) AS total,
-                SUM(CASE WHEN status = N'تعمل' THEN 1 ELSE 0 END) AS working,
-                SUM(CASE WHEN status = N'تحت الصيانة' THEN 1 ELSE 0 END) AS maint,
-                SUM(CASE WHEN status = N'متوقفة' THEN 1 ELSE 0 END) AS stopped
+            SELECT COUNT(*) AS total,
+                   SUM(CASE WHEN status = N'تعمل' THEN 1 ELSE 0 END) AS working,
+                   SUM(CASE WHEN status = N'متوقفة' THEN 1 ELSE 0 END) AS stopped
             FROM cameras WHERE is_archived = 0
         """)
-
         open_faults = fetch_one("""
             SELECT COUNT(*) AS n FROM camera_faults
             WHERE is_archived = 0 AND status NOT IN (?, ?)
         """, CLOSED_STATUSES)["n"]
-
-        total = stats["total"] or 0
-        working = stats["working"] or 0
-        maint = stats["maint"] or 0
-        stopped = stats["stopped"] or 0
-
-        self.stat_cards["total"].set_value(total, f"{len(building_choices())} مبنى/موقع")
-        uptime_pct = int((working / total) * 100) if total else 100
-        self.stat_cards["working"].set_value(working, f"نسبة الجاهزية: {uptime_pct}%")
-        self.stat_cards["maintenance"].set_value(maint, "تتطلب متابعة الفنيين")
-        self.stat_cards["stopped"].set_value(stopped, "خارج الخدمة حالياً")
-        self.stat_cards["open_faults"].set_value(open_faults or 0, "تحت الإجراء والإصلاح")
-
-    def load_reports(self):
-        avg = fetch_one("""
-            SELECT AVG(CAST(DATEDIFF(hour, entry_date, repair_date) AS FLOAT)) / 24.0 AS avg_days,
-                   COUNT(*) AS repaired
-            FROM camera_faults
-            WHERE is_archived = 0 AND repair_date IS NOT NULL
-              AND repair_date >= entry_date
-        """)
-
-        total_faults = fetch_one(
-            "SELECT COUNT(*) AS n FROM camera_faults WHERE is_archived = 0"
-        )["n"]
-
-        parts = fetch_one("""
-            SELECT COUNT(*) AS n FROM camera_faults
-            WHERE is_archived = 0 AND spare_part_id IS NOT NULL
+        switches = fetch_one("""
+            SELECT COUNT(*) AS n FROM network_switches WHERE is_archived = 0
         """)["n"]
 
-        maint_count = fetch_one(
-            "SELECT COUNT(*) AS n FROM camera_maintenance"
-        )["n"]
-
-        stats = fetch_one("""
-            SELECT COUNT(*) AS total,
-                   SUM(CASE WHEN status = N'تعمل' THEN 1 ELSE 0 END) AS working
-            FROM cameras WHERE is_archived = 0
-        """)
-        total_cam = stats["total"] or 0
-        working_cam = stats["working"] or 0
-        uptime = f"{(working_cam / total_cam * 100):.1f}%" if total_cam else "100%"
-
-        avg_days = avg["avg_days"]
-        mttr_str = "-" if avg_days is None else ("أقل من يوم" if avg_days < 1 else f"{avg_days:.1f} يوم")
-
-        self.rep_uptime_card.set_value(uptime, f"{working_cam} من أصل {total_cam} تعمل")
-        self.rep_mttr_card.set_value(mttr_str, "متوسط زمن حل البلاغات")
-        self.rep_parts_card.set_value(parts or 0, f"من أصل {total_faults} بلاغ مسجل")
-        self.rep_maint_card.set_value(maint_count or 0, "عملية صيانة دورية مثبتة")
-
-        top = fetch_all("""
-            SELECT TOP 10 c.camera_code, c.name, b.name AS building_name,
-                   COUNT(*) AS n, MAX(f.entry_date) AS last_fault
-            FROM camera_faults f
-            JOIN cameras c ON c.id = f.camera_id
-            LEFT JOIN buildings b ON c.building_id = b.id
-            WHERE f.is_archived = 0
-            GROUP BY c.camera_code, c.name, b.name
-            ORDER BY COUNT(*) DESC, MAX(f.entry_date) DESC
-        """)
-
-        self.top_table.setRowCount(0)
-        medals = {0: "🥇 الأول", 1: "🥈 الثاني", 2: "🥉 الثالث"}
-
-        for rank, r in enumerate(top):
-            row = self.top_table.rowCount()
-            self.top_table.insertRow(row)
-
-            rank_label = medals.get(rank, f"#{rank + 1}")
-            items = [
-                make_item(rank_label, bold=True),
-                make_item(r["camera_code"], bold=True),
-                make_item(r["name"], align_right=True),
-                make_item(r["building_name"] or "-", align_right=True),
-                make_item(f"{r['n']} أعطال", bold=True),
-                make_item(fmt_date(r["last_fault"])),
-            ]
-            for col, it in enumerate(items):
-                self.top_table.setItem(row, col, it)
+        self.stat_cards["total"].set_value(stats["total"] or 0, "")
+        self.stat_cards["working"].set_value(stats["working"] or 0, "")
+        self.stat_cards["stopped"].set_value(stats["stopped"] or 0, "")
+        self.stat_cards["switches"].set_value(switches or 0, "")
+        self.stat_cards["open_faults"].set_value(open_faults or 0, "")
 
     # =========================================================
     # اختيار الصفوف والقوائم المنبثقة
     # =========================================================
+
+    def _update_camera_buttons(self):
+        """تعديل/حذف يشتغلوا فقط لما يكون فيه كاميرا مختارة وغير مؤرشفة."""
+        has_row = self._selected_camera_id() is not None
+        enabled = has_row and not self.show_archived.isChecked()
+        self.edit_camera_button.setEnabled(enabled)
+        self.delete_camera_button.setEnabled(enabled)
 
     def _selected_camera_id(self):
         rows = self.cam_master_table.selectionModel().selectedRows() if self.cam_master_table.selectionModel() else []
@@ -3415,25 +3201,25 @@ class CamerasPage(QWidget):
         archived = self.show_archived.isChecked()
         menu = QMenu(self)
 
-        menu.addAction("📖 السجل التاريخي والملف الفني").triggered.connect(self.show_history)
+        menu.addAction(" السجل التاريخي والملف الفني").triggered.connect(self.show_history)
 
         if self.has_permission("cameras.add") and not archived:
-            menu.addAction("⚠ تسجيل بلاغ عطل لهذه الكاميرا").triggered.connect(
+            menu.addAction(" تسجيل بلاغ عطل لهذه الكاميرا").triggered.connect(
                 lambda: self.add_fault(camera_id)
             )
 
         if self.has_permission("cameras.edit") and not archived:
-            menu.addAction("✏ تعديل بيانات الكاميرا").triggered.connect(self.edit_camera)
+            menu.addAction(" تعديل بيانات الكاميرا").triggered.connect(self.edit_camera)
+        if self.has_permission("cameras.delete") and not archived:
+            menu.addAction("حذف نهائي").triggered.connect(self.delete_camera)
 
         if self.has_permission("cameras.delete"):
             menu.addSeparator()
             menu.addAction(
-                "♻ استرجاع من الأرشيف" if archived else "📦 أرشفة الكاميرا"
+                " استرجاع من الأرشيف" if archived else " أرشفة الكاميرا"
             ).triggered.connect(self.toggle_archive_camera)
 
-        sender = self.sender()
-        viewport = sender.viewport() if hasattr(sender, "viewport") else self
-        menu.exec(viewport.mapToGlobal(pos))
+        menu.exec(self.cam_master_table.viewport().mapToGlobal(pos))
 
     def fault_menu(self, pos):
         item = self.flt_table.itemAt(pos)
@@ -3445,25 +3231,25 @@ class CamerasPage(QWidget):
 
         menu = QMenu(self)
         if self.has_permission("cameras.edit") and not archived:
-            quick = menu.addMenu("⚡ تغيير حالة البلاغ بسرعة")
+            quick = menu.addMenu(" تغيير حالة البلاغ بسرعة")
             for st in ("قيد الفحص", "قيد الإصلاح", "بانتظار قطعة غيار", STATUS_REPAIRED, STATUS_CLOSED):
                 quick.addAction(st).triggered.connect(
                     lambda checked=False, s=st: self.quick_status(s)
                 )
 
-            menu.addAction("✏ تعديل البلاغ الكامل").triggered.connect(self.edit_fault)
+            menu.addAction(" تعديل البلاغ الكامل").triggered.connect(self.edit_fault)
 
         if self.has_permission("cameras.delete"):
             menu.addSeparator()
             menu.addAction(
-                "♻ استرجاع من الأرشيف" if archived else "📦 أرشفة البلاغ"
+                " استرجاع من الأرشيف" if archived else " أرشفة البلاغ"
             ).triggered.connect(self.toggle_archive_fault)
 
         if not menu.isEmpty():
             menu.exec(self.flt_table.viewport().mapToGlobal(pos))
 
     # =========================================================
-    # إجراءات الكاميرات (إضافة / تعديل / أرشفة / سجل)
+    # إجراءات الكاميرات (إضافة / تعديل / حذف / أرشفة / سجل)
     # =========================================================
 
     def _next_camera_code(self):
@@ -3497,15 +3283,15 @@ class CamerasPage(QWidget):
                     camera_code, name, building_id, location_detail,
                     placement, camera_type, manufacturer, model,
                     serial_number, ip_address, switch_id, switch_port,
-                    install_date, warranty_end, status, maintenance_interval_days, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    install_date, warranty_end, status, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 data["camera_code"], data["name"], data["building_id"],
                 data["location_detail"], data["placement"], data["camera_type"],
                 data["manufacturer"], data["model"], data["serial_number"],
                 data["ip_address"], data["switch_id"], data["switch_port"],
                 data["install_date"], data["warranty_end"], data["status"],
-                data["maintenance_interval_days"], data["notes"],
+                data["notes"],
             ))
             cursor.execute("SELECT CAST(SCOPE_IDENTITY() AS INT) AS id")
             new_id = cursor.fetchone()["id"]
@@ -3524,7 +3310,7 @@ class CamerasPage(QWidget):
             new_values=data,
         )
 
-        self.refresh_all()
+        self.refresh_all(notify=False)
         self.show_notice(f"تمت إضافة الكاميرا {data['camera_code']} بنجاح")
 
     def edit_camera(self):
@@ -3554,8 +3340,7 @@ class CamerasPage(QWidget):
                     name = ?, building_id = ?, location_detail = ?,
                     placement = ?, camera_type = ?, manufacturer = ?, model = ?,
                     serial_number = ?, ip_address = ?, switch_id = ?, switch_port = ?,
-                    install_date = ?, warranty_end = ?, status = ?,
-                    maintenance_interval_days = ?, notes = ?,
+                    install_date = ?, warranty_end = ?, status = ?, notes = ?,
                     updated_at = GETDATE()
                 WHERE id = ?
             """, (
@@ -3564,7 +3349,7 @@ class CamerasPage(QWidget):
                 data["model"], data["serial_number"], data["ip_address"],
                 data["switch_id"], data["switch_port"],
                 data["install_date"], data["warranty_end"], data["status"],
-                data["maintenance_interval_days"], data["notes"], camera_id,
+                data["notes"], camera_id,
             ))
             connection.commit()
         except Exception as exc:
@@ -3582,8 +3367,57 @@ class CamerasPage(QWidget):
             new_values=data,
         )
 
-        self.refresh_all()
+        self.refresh_all(notify=False)
         self.show_notice(f"تم تعديل بيانات الكاميرا {old['camera_code']}")
+
+    def delete_camera(self):
+        """حذف نهائي آمن؛ السجلات المرتبطة تمنع الحذف وتبقى الأرشفة متاحة."""
+        if not self.has_permission("cameras.delete"):
+            QMessageBox.warning(self, "غير مسموح", "ليس لديك صلاحية حذف الكاميرات.")
+            return
+        camera_id = self._selected_camera_id()
+        if not camera_id:
+            QMessageBox.information(self, "تنبيه", "اختر كاميرا أولًا.")
+            return
+        camera = fetch_one("SELECT * FROM cameras WHERE id = ?", (camera_id,))
+        if not camera:
+            return
+        counts = fetch_one(
+            "SELECT (SELECT COUNT(*) FROM camera_faults WHERE camera_id = ?) AS faults_count, "
+            "(SELECT COUNT(*) FROM camera_maintenance WHERE camera_id = ?) AS maintenance_count",
+            (camera_id, camera_id),
+        )
+        if counts["faults_count"] or counts["maintenance_count"]:
+            QMessageBox.warning(
+                self, "لا يمكن الحذف النهائي",
+                "الكاميرا مرتبطة ببلاغات أو سجلات صيانة. استخدم أرشفة الكاميرا للحفاظ على التاريخ.",
+            )
+            return
+        answer = QMessageBox.warning(
+            self, "تأكيد الحذف النهائي",
+            f"سيتم حذف الكاميرا {camera['camera_code']} نهائيًا ولا يمكن استرجاعها.\nهل تريد المتابعة؟",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No,
+        )
+        if answer != QMessageBox.Yes:
+            return
+        connection = get_connection()
+        try:
+            connection.cursor().execute("DELETE FROM cameras WHERE id = ?", (camera_id,))
+            connection.commit()
+        except Exception as exc:
+            connection.rollback()
+            QMessageBox.critical(self, "خطأ", f"تعذر حذف الكاميرا:\n{exc}")
+            return
+        finally:
+            connection.close()
+        write_audit_log(
+            user=self.current_user, action="حذف نهائي", module_name="الكاميرات",
+            record_id=camera_id,
+            description=f"تم حذف الكاميرا نهائيًا {camera['camera_code']}",
+            old_values={k: str(camera[k]) for k in camera.keys()},
+        )
+        self.refresh_all(notify=False)
+        self.show_notice(f"تم حذف الكاميرا {camera['camera_code']} نهائيًا")
 
     def toggle_archive_camera(self):
         if not self.has_permission("cameras.delete"):
@@ -3642,7 +3476,7 @@ class CamerasPage(QWidget):
             description=f"{'استرجاع' if restoring else 'أرشفة'} الكاميرا {camera['camera_code']}",
         )
 
-        self.refresh_all()
+        self.refresh_all(notify=False)
         self.show_notice(f"تم {'استرجاع' if restoring else 'أرشفة'} {camera['camera_code']}")
 
     def show_history(self):
@@ -3653,12 +3487,8 @@ class CamerasPage(QWidget):
             QMessageBox.information(self, "تنبيه", "يرجى تحديد كاميرا من الجدول أولاً.")
 
     def _open_history(self, camera_id):
-        CameraHistoryDialog(
-            camera_id, self,
-            can_maintain=self.has_permission("cameras.edit"),
-            current_user=self.current_user,
-        ).exec()
-        self.refresh_all()
+        CameraHistoryDialog(camera_id, self, current_user=self.current_user).exec()
+        self.refresh_all(notify=False)
 
     # =========================================================
     # إجراءات بلاغات الأعطال
@@ -3823,7 +3653,7 @@ class CamerasPage(QWidget):
             new_values=data,
         )
 
-        self.refresh_all()
+        self.refresh_all(notify=False)
         self.show_notice(f"تم تسجيل البلاغ {data['fault_number']} بنجاح")
 
     def edit_fault(self):
@@ -3896,7 +3726,7 @@ class CamerasPage(QWidget):
             new_values=data,
         )
 
-        self.refresh_all()
+        self.refresh_all(notify=False)
         self.show_notice(f"تم تعديل البلاغ {old['fault_number']}")
 
     def quick_status(self, status):
@@ -3943,7 +3773,7 @@ class CamerasPage(QWidget):
             old_values={"status": old["status"]}, new_values={"status": status},
         )
 
-        self.refresh_all()
+        self.refresh_all(notify=False)
         self.show_notice(f"تم تحديث حالة البلاغ إلى: {status}")
 
     def toggle_archive_fault(self):
@@ -3994,7 +3824,7 @@ class CamerasPage(QWidget):
             description=f"{'استرجاع' if restoring else 'أرشفة'} البلاغ {fault['fault_number']}",
         )
 
-        self.refresh_all()
+        self.refresh_all(notify=False)
         self.show_notice(f"تم {'استرجاع' if restoring else 'أرشفة'} {fault['fault_number']}")
 
     # =========================================================
@@ -4114,7 +3944,7 @@ class CamerasPage(QWidget):
         )
 
         self.load_building_filter()
-        self.refresh_all()
+        self.refresh_all(notify=False)
         self.show_notice(f"تم بنجاح استيراد {len(new_rows)} كاميرا")
 
     # =========================================================
@@ -4122,9 +3952,9 @@ class CamerasPage(QWidget):
     # =========================================================
 
     CAMERA_HEADERS = [
-        "الكود", "اسم الكاميرا", "المبنى / الفرع", "الموضع التفصيلي", "السويتش", "التثبيت", "النوع",
+        "الكود", "اسم الكاميرا", "المبنى / الفرع", "الموضع التفصيلي", "السويتش / المنفذ", "التثبيت", "النوع",
         "الشركة المصنعة", "الموديل", "الرقم التسلسلي", "IP", "الحالة",
-        "تاريخ التركيب", "انتهاء الضمان", "آخر صيانة دورية", "عدد الأعطال",
+        "تاريخ التركيب", "انتهاء الضمان", "عدد الأعطال",
     ]
 
     SWITCH_HEADERS = [
@@ -4169,7 +3999,6 @@ class CamerasPage(QWidget):
 
         def fill_sheet(sheet, headers, rows):
             sheet.sheet_view.rightToLeft = True
-        
             sheet.append(headers)
 
             for cell in sheet[1]:
@@ -4193,7 +4022,7 @@ class CamerasPage(QWidget):
         first.title = "سجل الكاميرات"
         fill_sheet(first, self.CAMERA_HEADERS, self._camera_export)
 
-        second = workbook.create_sheet("سجل السويتشات والشبكة")
+        second = workbook.create_sheet("سجل السويتشات")
         fill_sheet(second, self.SWITCH_HEADERS, self._switch_export)
 
         third = workbook.create_sheet("سجل بلاغات الأعطال")
@@ -4221,10 +4050,10 @@ class CamerasPage(QWidget):
             return
         open_print_page(
             build_print_html(
-                "تقرير جرد وحصر الكاميرات",
-                "بيانات الكاميرات ومواقعها وحالتها التشغيلية والسويتش المغذي وفق الفلاتر الحالية",
+                "تقرير جرد الكاميرات",
+                "بيانات الكاميرات ومواقعها وحالتها والسويتش المغذي وفق الفلاتر الحالية",
                 self.CAMERA_HEADERS, self._camera_export,
-                summary=f"إجمالي عدد الكاميرات المشمولة في التقرير: {len(self._camera_export)} كاميرا",
+                summary=f"إجمالي عدد الكاميرات: {len(self._camera_export)}",
             ),
             "cameras_inventory",
         )
@@ -4234,10 +4063,10 @@ class CamerasPage(QWidget):
             return
         open_print_page(
             build_print_html(
-                "تقرير سويتشات الشبكة والكاميرات",
+                "تقرير السويتشات",
                 "توزيع السويتشات وموديلاتها وعدد المنافذ والكاميرات المتصلة بها",
                 self.SWITCH_HEADERS, self._switch_export,
-                summary=f"إجمالي عدد السويتشات المشمولة في التقرير: {len(self._switch_export)} سويتش",
+                summary=f"إجمالي عدد السويتشات: {len(self._switch_export)}",
             ),
             "network_switches_report",
         )
@@ -4250,21 +4079,7 @@ class CamerasPage(QWidget):
                 "تقرير بلاغات أعطال الكاميرات",
                 "سجل الأعطال وحالات الإصلاح وقطع الغيار المصروفة",
                 self.FAULT_HEADERS, self._fault_export,
-                summary=f"إجمالي عدد البلاغات المسجلة في التقرير: {len(self._fault_export)} بلاغ",
+                summary=f"إجمالي عدد البلاغات: {len(self._fault_export)}",
             ),
             "camera_faults",
-        )
-
-    def print_alerts(self):
-        if not self._check_reports_permission():
-            return
-        open_print_page(
-            build_print_html(
-                "تقرير مركز التنبيهات الذكي للكاميرات",
-                "الأعطال الحرجة، البلاغات المتأخرة، الصيانة الوقائية، والكاميرات متكررة الأعطال",
-                ["مستوى الخطورة", "نوع التنبيه", "الكاميرا والموقع", "التفاصيل والأسباب"],
-                [a[:4] for a in self._alerts],
-                summary=f"إجمالي التنبيهات النشطة: {len(self._alerts)} تنبيه",
-            ),
-            "camera_alerts",
         )
