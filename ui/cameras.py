@@ -2456,9 +2456,10 @@ class CamerasPage(QWidget):
 
         layout.addWidget(bar)
 
+        # جدول مبسط: باقي التفاصيل (الموضع، النوع، الموديل، الضمان) في تلميح الاسم
+        # وفي ملف الكاميرا (دبل كليك) وفي ملف Excel.
         self.cam_master_table = make_table([
-            "الكود", "اسم الكاميرا", "المبنى / الفرع", "الموضع التفصيلي", "السويتش", "التثبيت والنوع",
-            "الشركة والموديل", "IP", "الحالة التشغيلية", "انتهاء الضمان", "الأعطال",
+            "الكود", "اسم الكاميرا", "المبنى / الفرع", "السويتش", "IP", "الحالة", "بلاغات",
         ], stretch_column=1)
         self.cam_master_table.doubleClicked.connect(lambda *_: self.show_history())
         self.cam_master_table.customContextMenuRequested.connect(self.camera_menu)
@@ -2727,22 +2728,26 @@ class CamerasPage(QWidget):
             st = c["status"] or "تعمل"
             c_colors = CAMERA_STATUS_COLORS.get(st, ("#334155", "#f1f5f9", "#cbd5e1"))
 
+            details = [
+                c["location_detail"] or "",
+                f"{c['placement'] or ''} {c['camera_type'] or ''}".strip(),
+                " / ".join(dict.fromkeys(
+                    p for p in (c["manufacturer"], c["model"]) if p
+                )),
+                f"ضمان حتى {fmt_date(c['warranty_end'])}" if c["warranty_end"] else "",
+            ]
+            name_tip = "\n".join(d for d in details if d)
+
             m_values = [
                 make_item(c["camera_code"], bold=True),
-                make_item(c["name"], bold=True, align_right=True),
+                make_item(c["name"], bold=True, align_right=True, tooltip=name_tip or None),
                 make_item(c["building_name"] or "-", align_right=True),
-                make_item(c["location_detail"] or "-", align_right=True),
                 make_item(switch_str, align_right=True,
                           tooltip=f"كود: {c['switch_code']}" if c["switch_code"] else "غير مربوط بسويتش"),
-                make_item(f"{c['placement'] or ''} {c['camera_type'] or ''}".strip() or "-"),
-                make_item(f"{c['manufacturer'] or ''} {c['model'] or ''}".strip() or "-"),
                 make_item(c["ip_address"] or "-"),
-                make_item(f"● {st}", c_colors),
-                make_item(fmt_date(c["warranty_end"])),
-                make_item(
-                    f"{c['open_count']} مفتوح" if c["open_count"]
-                    else (f"{c['faults_count']} سابق" if c["faults_count"] else "سليم")
-                ),
+                make_item(f"● {st}", (c_colors[0], None)),  # لون النص فقط بدون خلفية
+                make_item(f"{c['open_count']} مفتوح" if c["open_count"] else "-",
+                          colors=("#c2410c", None) if c["open_count"] else None),
             ]
             for col_idx, item in enumerate(m_values):
                 item.setData(Qt.UserRole, int(c["id"]))
