@@ -21,6 +21,20 @@ from database import get_connection
 from auth import hash_password
 
 
+def hide_form_row(form_layout, widget):
+    """
+    إخفاء الحقل مع الـ label بتاعه في QFormLayout
+    (شغال على كل إصدارات PySide6).
+    """
+
+    label = form_layout.labelForField(widget)
+
+    widget.setVisible(False)
+
+    if label is not None:
+        label.setVisible(False)
+
+
 class UserDialog(QDialog):
 
     def __init__(
@@ -79,9 +93,6 @@ class UserDialog(QDialog):
         if user_data:
             self.full_name.setText(str(user_data["full_name"] or ""))
 
-        if change_password:
-            self.full_name.setVisible(False)
-
         layout.addRow("الاسم الكامل:", self.full_name)
 
         # =================================================
@@ -90,13 +101,13 @@ class UserDialog(QDialog):
 
         self.display_title = QLineEdit()
 
-        self.display_title.setPlaceholderText("اللقب أو الرتبة (مثل: عميد، بشمهندس، رقيب أول...)")
+        self.display_title.setPlaceholderText(
+            "اللقب أو الرتبة (مثل: عميد، بشمهندس، رقيب أول...)"
+        )
 
         if user_data:
-            self.display_title.setText(str(user_data.get("display_title") or ""))
-
-        if change_password:
-            self.display_title.setVisible(False)
+            # الـ Row مش dict فمفيهوش .get() — نستخدم الوصول بالاسم
+            self.display_title.setText(str(user_data["display_title"] or ""))
 
         layout.addRow("اللقب / الرتبة:", self.display_title)
 
@@ -116,9 +127,6 @@ class UserDialog(QDialog):
 
             if index >= 0:
                 self.role.setCurrentIndex(index)
-
-        if change_password:
-            self.role.setVisible(False)
 
         layout.addRow("الدور:", self.role)
 
@@ -145,6 +153,21 @@ class UserDialog(QDialog):
         self.password_confirm.setPlaceholderText("تأكيد كلمة المرور")
 
         layout.addRow("تأكيد كلمة المرور:", self.password_confirm)
+
+        # =================================================
+        # إخفاء الصفوف غير اللازمة حسب الوضع
+        # =================================================
+
+        if change_password:
+            # تغيير كلمة المرور: نخفي الاسم الكامل واللقب والدور
+            hide_form_row(layout, self.full_name)
+            hide_form_row(layout, self.display_title)
+            hide_form_row(layout, self.role)
+
+        elif user_data is not None:
+            # تعديل المستخدم: كلمة المرور لا تتغير من هنا
+            hide_form_row(layout, self.password)
+            hide_form_row(layout, self.password_confirm)
 
         # =================================================
         # Buttons
@@ -243,7 +266,8 @@ class UserDialog(QDialog):
                 )
                 return
 
-        if not self.user_data or self.change_password:
+        # كلمة المرور مطلوبة فقط عند الإضافة أو تغيير كلمة المرور
+        if self.user_data is None or self.change_password:
 
             if not password:
                 QMessageBox.warning(
@@ -434,21 +458,21 @@ class UsersPage(QWidget):
 
         self.table.verticalHeader().setVisible(False)
 
-        header = self.table.horizontalHeader()
+        table_header = self.table.horizontalHeader()
 
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        table_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
 
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        table_header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
 
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        table_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
 
-        header.setSectionResizeMode(3, QHeaderView.Stretch)
+        table_header.setSectionResizeMode(3, QHeaderView.Stretch)
 
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        table_header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
 
-        header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        table_header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
 
-        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
+        table_header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
 
         layout.addWidget(self.table)
 

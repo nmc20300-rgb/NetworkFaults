@@ -1,0 +1,38 @@
+
+This file lists modules PyInstaller was not able to find. This does not
+necessarily mean these modules are required for running your program. Both
+Python's standard library and 3rd-party Python packages often conditionally
+import optional modules, some of which may be available only on certain
+platforms.
+
+Types of import:
+* top-level: imported at the top-level - look at these first
+* conditional: imported within an if-statement
+* delayed: imported within a function
+* optional: imported within a try-except-statement
+
+IMPORTANT: Do NOT post this list to the issue-tracker. Use it as a basis for
+            tracking down the missing module yourself. Thanks!
+
+missing module named 'collections.abc' - imported by _colorize (top-level), typing (top-level), traceback (top-level), logging (top-level), selectors (top-level), http.client (top-level), importlib.resources.readers (top-level), inspect (top-level), tracemalloc (top-level), configparser (top-level)
+missing module named _scproxy - imported by urllib.request (conditional)
+missing module named posix - imported by posixpath (optional), shutil (conditional), importlib._bootstrap_external (conditional), pathlib._os (optional), os (conditional, optional)
+missing module named resource - imported by posix (top-level)
+missing module named fcntl - imported by pathlib._os (optional), subprocess (optional)
+missing module named grp - imported by shutil (delayed, optional), tarfile (optional), pathlib (optional), subprocess (delayed, conditional, optional)
+missing module named pwd - imported by posixpath (delayed, conditional, optional), shutil (delayed, optional), tarfile (optional), pathlib (optional), netrc (delayed, optional), subprocess (delayed, conditional, optional)
+missing module named _frozen_importlib_external - imported by importlib._bootstrap (delayed), importlib (optional), importlib.abc (optional)
+excluded module named _frozen_importlib - imported by importlib (optional), importlib.abc (optional)
+missing module named 'PySide6.QtCore' - imported by ui.arabic_translator (top-level), ui.cameras (top-level), ui.org_cache (top-level), ui.faults_page (top-level), ui.dashboard_page (top-level), ui.ac_alert (top-level), ui.ac_history (top-level), ui.dashboard_charts (top-level), ui.devices_page (top-level), ui.ink_page (top-level), ui.login_page (top-level), ui.logs_page (top-level), ui.org_structure_page (top-level), ui.permissions_page (top-level), ui.spare_parts_page (top-level), ui.reports_page (top-level), ui.users_page (top-level)
+missing module named _posixsubprocess - imported by subprocess (conditional)
+missing module named 'PySide6.QtPrintSupport' - imported by ui.spare_parts_page (top-level)
+missing module named 'openpyxl.worksheet' - imported by ui.org_structure_page (delayed)
+missing module named 'openpyxl.utils' - imported by ui.org_structure_page (delayed)
+missing module named 'openpyxl.styles' - imported by ui.cameras (delayed, optional), ui.ink_page (delayed, optional), ui.org_structure_page (delayed)
+missing module named openpyxl - imported by ui.faults_page (delayed, optional), ui.cameras (delayed, optional), ui.devices_page (delayed, optional), ui.ink_page (delayed, optional), ui.org_structure_page (delayed)
+missing module named 'PySide6.QtSvg' - imported by ui.ink_page (top-level)
+missing module named 'PySide6.QtMultimedia' - imported by ui.ac_alert (optional)
+missing module named shiboken6 - imported by ui.cameras (top-level)
+missing module named 'PySide6.QtWidgets' - imported by C:\Users\Administrator\NetworkFaults\main.py (top-level), ui.arabic_translator (top-level), ui.cameras (top-level), ui.faults_page (top-level), ui.dashboard_page (top-level), ui.ac_alert (top-level), ui.ac_history (top-level), ui.dashboard_charts (top-level), ui.devices_page (top-level), ui.ink_page (top-level), ui.login_page (top-level), ui.logs_page (top-level), ui.org_structure_page (top-level), ui.permissions_page (top-level), ui.spare_parts_page (top-level), ui.reports_page (top-level), ui.users_page (top-level)
+missing module named 'PySide6.QtGui' - imported by C:\Users\Administrator\NetworkFaults\main.py (top-level), ui.cameras (top-level), ui.faults_page (top-level), ui.dashboard_page (top-level), ui.ac_alert (top-level), ui.ac_history (top-level), ui.dashboard_charts (top-level), ui.devices_page (top-level), ui.ink_page (top-level), ui.login_page (top-level), ui.org_structure_page (top-level), ui.spare_parts_page (top-level)
+missing module named PySide6 - imported by C:\Users\Administrator\NetworkFaults\main.py (top-level)

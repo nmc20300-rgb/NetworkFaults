@@ -1,28 +1,138 @@
-import pyodbc
-import socket
+import configparser
 import csv
 from datetime import date, datetime, time
+import os
 from pathlib import Path
+import socket
+import sys
+import pyodbc
 
 
 # =========================================================
-# SQL Server Settings
+# SQL Server Settings & Configuration
 # =========================================================
 
-BASE_DIR = Path(__file__).resolve().parent
+def get_app_dir() -> Path:
+    """إرجاع المسار الفعلي للمجلد الذي يحتوي على البرنامج سواء كان سكربت أو ملف EXE مجمّع."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
 
-SQL_SERVER = "localhost"
-SQL_DATABASE = "NetworkFaults"
-SQL_DRIVER = "ODBC Driver 18 for SQL Server"
+
+BASE_DIR = get_app_dir()
+CONFIG_FILE_PATH = BASE_DIR / "config.ini"
+
+DEFAULT_CONFIG_CONTENT = """# ==============================================================================
+# إعدادات الاتصال بقاعدة بيانات نظام NetworkFaults
+# ==============================================================================
+[Database]
+Server = localhost
+Database = NetworkFaults
+Driver = ODBC Driver 18 for SQL Server
+UseSQLAuth = false
+Username = NetworkFaults_App
+Password = P@ssw0rd_Secure_2026!
+TrustServerCertificate = yes
+Encrypt = Optional
+Timeout = 10
+"""
 
 
-CONNECTION_STRING = (
-    f"DRIVER={{{SQL_DRIVER}}};"
-    f"SERVER={SQL_SERVER};"
-    f"DATABASE={SQL_DATABASE};"
-    "Trusted_Connection=yes;"
-    "TrustServerCertificate=yes;"
-)
+def ensure_config_file_exists() -> Path:
+    """التأكد من وجود ملف config.ini وإنشاؤه بالإعدادات الافتراضية إذا لم يكن موجوداً."""
+    if not CONFIG_FILE_PATH.exists():
+        try:
+            CONFIG_FILE_PATH.write_text(DEFAULT_CONFIG_CONTENT, encoding="utf-8")
+        except Exception as e:
+            print(f"Warning: Could not create default config.ini: {e}")
+    return CONFIG_FILE_PATH
+
+
+def load_db_config():
+    """قراءة إعدادات قاعدة البيانات من ملف config.ini مع قيم احتياطية آمنة."""
+    ensure_config_file_exists()
+
+    config = configparser.ConfigParser()
+    if CONFIG_FILE_PATH.exists():
+        try:
+            config.read(CONFIG_FILE_PATH, encoding="utf-8")
+        except Exception as e:
+            print(f"Warning: Could not read config.ini: {e}")
+
+    db_section = config["Database"] if "Database" in config else {}
+
+    server = db_section.get("Server", "localhost").strip()
+    database = db_section.get("Database", "NetworkFaults").strip()
+    driver = db_section.get("Driver", "ODBC Driver 18 for SQL Server").strip()
+
+    # التحقق من خيار المصادقة (Windows Auth أم SQL Auth)
+    use_sql_auth_str = str(db_section.get("UseSQLAuth", "false")).strip().lower()
+    use_sql_auth = use_sql_auth_str in ("1", "true", "yes", "on")
+
+    username = db_section.get("Username", "").strip()
+    password = db_section.get("Password", "").strip()
+    trust_cert = db_section.get("TrustServerCertificate", "yes").strip()
+    encrypt = db_section.get("Encrypt", "Optional").strip()
+
+    try:
+        timeout = int(db_section.get("Timeout", "10").strip())
+    except ValueError:
+        timeout = 10
+
+    return {
+        "server": server,
+        "database": database,
+        "driver": driver,
+        "use_sql_auth": use_sql_auth,
+        "username": username,
+        "password": password,
+        "trust_cert": trust_cert,
+        "encrypt": encrypt,
+        "timeout": timeout,
+    }
+
+
+def build_connection_string(cfg=None) -> str:
+    """بناء سلسلة اتصال ODBC بالاعتماد على الإعدادات المقروءة."""
+    if cfg is None:
+        cfg = load_db_config()
+
+    driver = cfg.get("driver", "ODBC Driver 18 for SQL Server")
+    available_drivers = pyodbc.drivers()
+    if driver not in available_drivers:
+        for fallback in ("ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server", "SQL Server"):
+            if fallback in available_drivers:
+                driver = fallback
+                break
+
+    parts = [
+        f"DRIVER={{{driver}}}",
+        f"SERVER={cfg['server']}",
+        f"DATABASE={cfg['database']}",
+    ]
+
+    if cfg.get("use_sql_auth"):
+        parts.append(f"UID={cfg['username']}")
+        parts.append(f"PWD={cfg['password']}")
+    else:
+        parts.append("Trusted_Connection=yes")
+
+    if cfg.get("trust_cert"):
+        parts.append(f"TrustServerCertificate={cfg['trust_cert']}")
+
+    if cfg.get("encrypt"):
+        parts.append(f"Encrypt={cfg['encrypt']}")
+
+    return ";".join(parts) + ";"
+
+
+# تهيئة المتغيرات على مستوى الوحدة للحفاظ على التوافق التام
+_INITIAL_CFG = load_db_config()
+SQL_SERVER = _INITIAL_CFG["server"]
+SQL_DATABASE = _INITIAL_CFG["database"]
+SQL_DRIVER = _INITIAL_CFG["driver"]
+CONNECTION_STRING = build_connection_string(_INITIAL_CFG)
+DB_TIMEOUT = _INITIAL_CFG["timeout"]
 
 
 # =========================================================
@@ -266,14 +376,28 @@ class SQLServerConnection:
 # =========================================================
 
 def get_connection():
+    """إنشاء اتصال بقاعدة البيانات بالاعتماد على الإعدادات في config.ini."""
+    cfg = load_db_config()
+    conn_str = build_connection_string(cfg)
+    timeout = cfg.get("timeout", 10)
 
-    connection = pyodbc.connect(
-        CONNECTION_STRING
-    )
-
-    return SQLServerConnection(
-        connection
-    )
+    try:
+        connection = pyodbc.connect(
+            conn_str,
+            timeout=timeout,
+        )
+        return SQLServerConnection(
+            connection
+        )
+    except pyodbc.Error as err:
+        server_info = cfg.get("server", "unknown")
+        auth_type = "SQL Auth" if cfg.get("use_sql_auth") else "Windows Auth"
+        error_msg = (
+            f"فشل الاتصال بقاعدة البيانات على الخادم ({server_info}) عبر ({auth_type}).\n"
+            f"يرجى التحقق من ملف الإعدادات config.ini واتصال الشبكة.\n"
+            f"الخطأ التقني: {err}"
+        )
+        raise ConnectionError(error_msg) from err
 
 
 # =========================================================

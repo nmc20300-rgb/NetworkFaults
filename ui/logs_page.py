@@ -893,7 +893,7 @@ class LogsPage(QWidget):
 
     # =========================================================
     # Load Logs
-    # =========================================================
+    # =========================================================  
 
     def load_logs(self, preserve_view=False):
 
@@ -1248,7 +1248,6 @@ class LogsPage(QWidget):
             except ValueError:
                 return s
         return val
-
     @classmethod
     def values_are_equal(cls, val1, val2):
         if val1 == val2:

@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
 
 from database import get_connection
 
-
 from database import initialize_database, write_audit_log
 from ui.arabic_translator import setup_arabic_localization
 from ui.cameras import CamerasPage
