@@ -716,6 +716,100 @@ def initialize_database():
     except Exception as err:
         print("MIGRATION WARNING (fault_target):", err)
 
+    # ──────────────────────────────────────────────────────────────────
+    # إضافة حقل display_title إلى جدول المستخدمين.
+    # يُستخدَم لتخصيص عنوان التحية (عميد / بشمهندس / رقيب …) لكل مستخدم
+    # بدلًا من تثبيته في الكود مباشرةً.
+    # ──────────────────────────────────────────────────────────────────
+    try:
+        cursor.execute("""
+            IF NOT EXISTS (
+                SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+                WHERE TABLE_NAME = 'users' AND COLUMN_NAME = 'display_title'
+            )
+            BEGIN
+                ALTER TABLE dbo.users ADD display_title NVARCHAR(100) NULL;
+            END
+        """)
+        connection.commit()
+    except Exception as err:
+        print("MIGRATION WARNING (display_title):", err)
+
+    # ──────────────────────────────────────────────────────────────────
+    # بذر display_title للحسابات المعروفة (ترحيل البيانات الثابتة).
+    #
+    # القاعدة:
+    #   • نُطابق على username أو full_name (case-insensitive).
+    #   • نُحدِّث فقط لما display_title = NULL حتى لا نمسح
+    #     قيمة أضافها المستخدم يدويًا لاحقًا.
+    #   • الـ migration آمن للتشغيل أكثر من مرة (idempotent).
+    # ──────────────────────────────────────────────────────────────────
+
+    # جدول الترحيل: (username_lower, full_name_lower, display_title)
+    # username_lower  → قيمة username في DB بحروف صغيرة للمطابقة
+    # full_name_lower → قيمة full_name في DB بحروف صغيرة للمطابقة
+    # اترك None للحقل اللي مش معروف
+    _title_seeds = [
+        # username            full_name                    display_title
+        ("superadmin",        None,                        "عميد"),
+        ("a_salah",           None,                        "عميد"),
+        (None,                "قائد شبكه الربط المحلية",  "عميد"),
+        (None,                "قائد شبكة الربط المحلية",  "عميد"),
+        ("ali_saudy",         None,                        "بشمهندس"),
+        ("ali_saudi",         None,                        "بشمهندس"),
+        ("ali",               None,                        "بشمهندس"),
+        (None,                "علي سعودي",                "بشمهندس"),
+        (None,                "علي السعودى",               "بشمهندس"),
+        (None,                "م علي سعودي",               "بشمهندس"),
+        (None,                "م .علي سعودي",              "بشمهندس"),
+        (None,                "بشمهندس علي سعودي",         "بشمهندس"),
+        ("m_adel",            None,                        "بشمهندس"),
+        ("m_samir",           None,                        "رقيب أول"),
+        ("a_galal",           None,                        "عريف"),
+        ("m_rashad",          None,                        "بشمهندس"),
+        ("hamdy",             None,                        "بشمهندس"),
+        ("hamdyhaggag74",     None,                        "بشمهندس"),
+        ("ahmed",             None,                        "بشمهندس"),
+        ("ahmedabozead",      None,                        "بشمهندس"),
+        ("abdulghaffar",      None,                        "بشمهندس"),
+    ]
+
+    try:
+        # تحديث الاسم الفعلي لـ A_salah إذا كان "مدير النظام" ليصبح "أحمد صلاح" كما كان في الكود
+        cursor.execute(
+            """
+            UPDATE dbo.users
+            SET    full_name = N'أحمد صلاح'
+            WHERE  LOWER(username) = 'a_salah'
+              AND  (full_name IS NULL OR full_name = N'مدير النظام')
+            """
+        )
+
+        for _uname, _fname, _title in _title_seeds:
+            if _uname is not None:
+                cursor.execute(
+                    """
+                    UPDATE dbo.users
+                    SET    display_title = ?
+                    WHERE  display_title IS NULL
+                      AND  LOWER(username) = LOWER(?)
+                    """,
+                    (_title, _uname),
+                )
+            if _fname is not None:
+                cursor.execute(
+                    """
+                    UPDATE dbo.users
+                    SET    display_title = ?
+                    WHERE  display_title IS NULL
+                      AND  LOWER(full_name) = LOWER(?)
+                    """,
+                    (_title, _fname),
+                )
+        connection.commit()
+    except Exception as err:
+        print("MIGRATION WARNING (display_title seed):", err)
+
     cursor.close()
 
     connection.close()

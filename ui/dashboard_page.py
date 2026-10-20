@@ -1,10 +1,8 @@
-import json
 from datetime import date, datetime, timedelta
 
 from PySide6.QtCore import (
     QEasingCurve,
     QPropertyAnimation,
-    QUrl,
     Qt,
     QTimer,
     QVariantAnimation,
@@ -26,7 +24,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QScrollArea,
 )
-from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
+# PySide6.QtNetwork غير مطلوب — المواقيت تُقرأ من قاعدة البيانات المحلية فقط
 
 from database import get_connection, get_prayer_times
 from .ac_alert import AcAlertCard
@@ -334,12 +332,9 @@ class PrayerTimesPanel(QFrame):
 
         self.times = None  # تُحفظ بنظام 24 ساعة للحساب، وتُعرض بنظام 12 ساعة
         self.loaded_date = None
-        self.pending_reply = None
-        self._last_load_attempt = None  # لمنع تكرار الطلبات كل ثانية لو النت فاصل
+        self._last_load_attempt = None  # لمنع تكرار المحاولات كل ثانية لو فشل الاتصال بـ SQL
         self._last_next_key = None
         self._countdown_tone = ""
-        self.network = QNetworkAccessManager(self)
-        self.network.finished.connect(self._handle_reply)
 
         panel_layout = QVBoxLayout(self)
         panel_layout.setContentsMargins(9, 12, 9, 14)
@@ -463,8 +458,6 @@ class PrayerTimesPanel(QFrame):
         self.setFixedWidth(self.EXPANDED_WIDTH if expanded else self.COLLAPSED_WIDTH)
 
     def load_times(self):
-        if self.pending_reply is not None:
-            return
 
         self._last_load_attempt = datetime.now()
 
@@ -503,52 +496,7 @@ class PrayerTimesPanel(QFrame):
         self.next_status.setText(text)
         self.next_status.show()
 
-    def _handle_reply(self, reply):
-        if reply != self.pending_reply:
-            reply.deleteLater()
-            return
 
-        request_date = reply.property("requestedDate") or datetime.now().strftime("%d-%m-%Y")
-        self.pending_reply = None
-        try:
-            if reply.error() != QNetworkReply.NetworkError.NoError:
-                raise RuntimeError("تعذر الاتصال بخدمة المواقيت")
-
-            payload = json.loads(bytes(reply.readAll()).decode("utf-8"))
-            if payload.get("code") != 200:
-                raise RuntimeError("خدمة المواقيت لم تُرجع بيانات صحيحة")
-
-            data = payload["data"]
-            meta = data.get("meta", {})
-            method = meta.get("method", {})
-            if method.get("id") != 5:
-                raise RuntimeError("استجابة الخدمة لم تستخدم طريقة الحساب المصرية")
-            if meta.get("timezone") != "Africa/Cairo":
-                raise RuntimeError("استجابة الخدمة لم تُرجع توقيت مصر المحلي")
-            if (
-                abs(float(meta.get("latitude", 0)) - 31.2001) > 0.1
-                or abs(float(meta.get("longitude", 0)) - 29.9187) > 0.1
-            ):
-                raise RuntimeError("استجابة الخدمة لا تخص إحداثيات الإسكندرية")
-
-            timing_keys = [key for key, _ in self.PRAYERS]
-            timings = data["timings"]
-            parsed_times = {key: str(timings[key]).split()[0][:5] for key in timing_keys}
-            for value in parsed_times.values():
-                datetime.strptime(value, "%H:%M")
-
-            self.times = parsed_times
-            self.loaded_date = request_date
-            for key, value in parsed_times.items():
-                self.time_labels[key].setText(to_12h(value))
-            self._update_countdown()
-        except Exception:
-            self.times = None
-            for time_label in self.time_labels.values():
-                time_label.setText("--:--")
-            self._show_status("تعذر تحميل المواقيت. تحقق من الاتصال بالإنترنت.")
-        finally:
-            reply.deleteLater()
 
     def _update_countdown(self):
         today = datetime.now().strftime("%d-%m-%Y")
@@ -642,7 +590,7 @@ class DashboardPage(QWidget):
         # التحديث التلقائي يشتغل فقط لما الصفحة ظاهرة (توفير على الأجهزة الضعيفة)
         self.refresh_timer = QTimer(self)
         self.refresh_timer.timeout.connect(self._auto_refresh)
-        self.refresh_timer.start(5000)
+        self.refresh_timer.start(30000)  # 30 ثانية — مناسب للأجهزة بدون ذاكرة كبيرة
 
         # حدّث التحية كل دقيقة لكل المستخدمين.
         self.greeting_timer = QTimer(self)
@@ -663,59 +611,37 @@ class DashboardPage(QWidget):
     def update_greeting(self):
         username = str(self.current_user.get("username", "") or "").strip()
         full_name = str(self.current_user.get("full_name", "") or "").strip()
-        display_name = str(self.current_user.get("display_name", "") or "").strip()
-        name = str(self.current_user.get("name", "") or "").strip()
         role_code = str(self.current_user.get("role_code", "") or "").strip().upper()
 
-        user_profiles = {
-            "قائد شبكه الربط المحلية": {"title": "عميد", "name": "أحمد صلاح"},
-            "قائد شبكة الربط المحلية": {"title": "عميد", "name": "أحمد صلاح"},
-            "superadmin": {"title": "عميد", "name": "أحمد صلاح"},
-            "ali": {"title": "بشمهندس", "name": "علي"},
-            "m_adel": {"title": "بشمهندس", "name": "محمد عادل"},
-            "m_samir": {"title": "رقيب أول", "name": "محمد سمير"},
-            "a_galal": {"title": "شاويش", "name": "أحمد جلال"},
-            "m_rashad": {"title": "بشمهندس", "name": "مصطفي رشاد"},
-            "علي سعودي": {"title": "بشمهندس", "name": "علي سعودي"},
-            "علي السعودى": {"title": "بشمهندس", "name": "علي سعودي"},
-            "م علي سعودي": {"title": "بشمهندس", "name": "علي سعودي"},
-            "بشمهندس علي سعودي": {"title": "بشمهندس", "name": "علي سعودي"},
-            "ali saudi": {"title": "بشمهندس", "name": "علي سعودي"},
-            "ali_saudi": {"title": "بشمهندس", "name": "علي سعودي"},
-            "ali.saud": {"title": "بشمهندس", "name": "علي سعودي"},
-        }
+        # display_title يُخزَّن في جدول users ويُحمَّل مع بيانات المستخدم.
+        # لو الحقل موجود في الـ DB يستخدمه مباشرةً بدون أي كود ثابت هنا.
+        display_title = str(self.current_user.get("display_title", "") or "").strip()
 
-        candidates = [
-            full_name.casefold(),
-            display_name.casefold(),
-            name.casefold(),
-            username.casefold(),
-        ]
-        profile = next(
-            (user_profiles[key] for key in candidates if key in user_profiles),
-            None,
-        )
-        if profile is None and role_code == "SUPER_ADMIN":
-            profile = user_profiles["superadmin"]
+        person_name = full_name or username or "زميلنا"
 
-        if profile:
-            person_name = profile["name"]
-            title = profile["title"]
+        if display_title:
+            # عنوان مخزَّن في قاعدة البيانات — يُستخدم مباشرةً
+            title = display_title
         else:
-            person_name = full_name or display_name or name or username or "زميلنا"
+            # Fallback حسب الـ Role
             role_titles = {
                 "SUPER_ADMIN": "قائد الشبكة",
+                "ADMIN":       "مسؤول النظام",
+                "SUB_ADMIN":   "",
             }
             title = role_titles.get(role_code, "")
 
         hour = datetime.now().hour
         greeting = "صباح الخير" if 5 <= hour < 12 else "مساء الخير"
-        if title == "عميد" and person_name == "أحمد صلاح":
-            addressed_name = "سيادة العميد أحمد صلاح"
-        else:
+        if title == "عميد":
+            addressed_name = f"سيادة العميد {person_name}".strip()
+        elif title:
             addressed_name = f"{title} {person_name}".strip()
+        else:
+            addressed_name = person_name
 
         self.greeting_label.setText(f"{greeting}، {addressed_name}")
+
         if role_code == "SUPER_ADMIN":
             hint = "إليك ملخص حالة الشبكة والأجهزة والأعطال."
         elif role_code in ("ADMIN", "SUB_ADMIN"):
@@ -724,6 +650,7 @@ class DashboardPage(QWidget):
             hint = "نتمنى لك يوم عمل موفقًا؛ إليك آخر مستجدات النظام."
 
         self.greeting_hint.setText(hint)
+
 
     # =========================================================
     # بناء الواجهة

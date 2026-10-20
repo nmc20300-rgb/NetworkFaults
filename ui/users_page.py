@@ -85,6 +85,22 @@ class UserDialog(QDialog):
         layout.addRow("الاسم الكامل:", self.full_name)
 
         # =================================================
+        # Display Title (اللقب / الرتبة)
+        # =================================================
+
+        self.display_title = QLineEdit()
+
+        self.display_title.setPlaceholderText("اللقب أو الرتبة (مثل: عميد، بشمهندس، رقيب أول...)")
+
+        if user_data:
+            self.display_title.setText(str(user_data.get("display_title") or ""))
+
+        if change_password:
+            self.display_title.setVisible(False)
+
+        layout.addRow("اللقب / الرتبة:", self.display_title)
+
+        # =================================================
         # Role  (يتم تحميلها من جدول roles)
         # =================================================
 
@@ -396,12 +412,13 @@ class UsersPage(QWidget):
 
         self.table = QTableWidget()
 
-        self.table.setColumnCount(6)
+        self.table.setColumnCount(7)
 
         self.table.setHorizontalHeaderLabels(
             [
                 "ID",
                 "اسم المستخدم",
+                "اللقب / الرتبة",
                 "الاسم الكامل",
                 "الدور",
                 "الحالة",
@@ -423,13 +440,15 @@ class UsersPage(QWidget):
 
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
 
-        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
 
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.Stretch)
 
         header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
 
         header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+
+        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
 
         layout.addWidget(self.table)
 
@@ -493,6 +512,7 @@ class UsersPage(QWidget):
                 SELECT
                     u.id,
                     u.username,
+                    u.display_title,
                     u.full_name,
                     u.role_id,
                     r.role_code,
@@ -517,6 +537,7 @@ class UsersPage(QWidget):
                 values = [
                     row["id"],
                     row["username"],
+                    row["display_title"] or "",
                     row["full_name"] or "",
                     row["role_name"],
                     "نشط" if row["is_active"] else "غير نشط",
@@ -584,6 +605,7 @@ class UsersPage(QWidget):
                 SELECT
                     u.id,
                     u.username,
+                    u.display_title,
                     u.full_name,
                     u.role_id,
                     u.is_active,
@@ -628,6 +650,8 @@ class UsersPage(QWidget):
 
         full_name = dialog.full_name.text().strip()
 
+        display_title = dialog.display_title.text().strip() or None
+
         password = dialog.password.text()
 
         role_id = dialog.role.currentData()
@@ -668,11 +692,13 @@ class UsersPage(QWidget):
                     username,
                     password_hash,
                     full_name,
+                    display_title,
                     role_id,
                     is_active
                 )
                 VALUES
                 (
+                    ?,
                     ?,
                     ?,
                     ?,
@@ -684,6 +710,7 @@ class UsersPage(QWidget):
                     username,
                     password_hash,
                     full_name,
+                    display_title,
                     role_id,
                 )
             )
@@ -741,6 +768,8 @@ class UsersPage(QWidget):
 
         full_name = dialog.full_name.text().strip()
 
+        display_title = dialog.display_title.text().strip() or None
+
         role_id = dialog.role.currentData()
 
         try:
@@ -780,12 +809,14 @@ class UsersPage(QWidget):
                 SET
                     username = ?,
                     full_name = ?,
+                    display_title = ?,
                     role_id = ?
                 WHERE id = ?
                 """,
                 (
                     username,
                     full_name,
+                    display_title,
                     role_id,
                     user["id"],
                 )

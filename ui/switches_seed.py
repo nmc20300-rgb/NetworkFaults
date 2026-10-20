@@ -106,7 +106,7 @@ def ensure_building_id(cursor, building_name):
     return new_row["id"] if new_row else None
 
 
-def seed_network_switches():
+def seed_network_switches(auto_link=False, *args, **kwargs):
     """
     استيراد السويتشات المعتمدة وربطها بالمباني فقط.
     لا يربط أي كاميرا بأي سويتش؛ الربط يدوي.

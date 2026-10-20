@@ -567,12 +567,33 @@ def ensure_camera_tables():
 
 def fetch_all(sql, params=()):
     connection = get_connection()
+    cursor = None
     try:
         cursor = connection.cursor()
         cursor.execute(sql, params)
         return cursor.fetchall()
     finally:
+        if cursor:
+            cursor.close()
         connection.close()
+
+
+def build_where(clauses):
+    """يبني جملة WHERE آمنة من قائمة clauses.
+
+    القاعدة الأساسية:
+        كل clause يجب أن يحتوي فقط على '?' placeholders —
+        لا يُسمح بإدراج أي قيمة مستخدم مباشرةً في النص.
+        جميع القيم تُمرَّر في قائمة params منفصلة إلى fetch_all.
+
+    مثال صحيح:
+        clauses = ["c.status = ?", "c.building_id = ?"]
+        params  = ["تعمل", 5]
+
+    مثال خاطئ (ثغرة SQL Injection):
+        clauses = [f"c.name = '{user_input}'"]  # لا تفعل هذا
+    """
+    return " AND ".join(clauses) if clauses else "1=1"
 
 
 def fetch_one(sql, params=()):
@@ -2686,7 +2707,7 @@ class CamerasPage(QWidget):
             clauses.append("c.placement = ?")
             params.append(self.cam_placement_filter.currentText())
 
-        rows = fetch_all(f"""
+        rows = fetch_all("""
             SELECT TOP 3000 c.*, b.name AS building_name,
                 s.name as switch_name, s.switch_code,
                 (SELECT COUNT(*) FROM camera_faults f
@@ -2697,7 +2718,7 @@ class CamerasPage(QWidget):
             FROM cameras c
             LEFT JOIN buildings b ON c.building_id = b.id
             LEFT JOIN network_switches s ON c.switch_id = s.id
-            WHERE {' AND '.join(clauses)}
+            WHERE """ + build_where(clauses) + """
             ORDER BY c.camera_code
         """, params)
 
@@ -2783,12 +2804,12 @@ class CamerasPage(QWidget):
             clauses.append("s.role = ?")
             params.append(self.sw_role_filter.currentText())
 
-        rows = fetch_all(f"""
+        rows = fetch_all("""
             SELECT s.*, b.name as building_name,
                 (SELECT COUNT(*) FROM cameras c WHERE c.switch_id = s.id AND c.is_archived = 0) as cameras_count
             FROM network_switches s
             LEFT JOIN buildings b ON s.building_id = b.id
-            WHERE {' AND '.join(clauses)}
+            WHERE """ + build_where(clauses) + """
             ORDER BY s.switch_code
         """, params)
 
@@ -3069,13 +3090,13 @@ class CamerasPage(QWidget):
             clauses.append("f.priority = ?")
             params.append(self.flt_priority_filter.currentText())
 
-        rows = fetch_all(f"""
+        rows = fetch_all("""
             SELECT TOP 3000 f.*, c.name AS camera_name,
                    c.camera_code, b.name AS building_name
             FROM camera_faults f
             JOIN cameras c ON f.camera_id = c.id
             LEFT JOIN buildings b ON c.building_id = b.id
-            WHERE {' AND '.join(clauses)}
+            WHERE """ + build_where(clauses) + """
             ORDER BY f.id DESC
         """, params)
 

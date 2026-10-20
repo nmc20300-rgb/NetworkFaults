@@ -128,6 +128,7 @@ def authenticate(username, password):
                 u.full_name,
                 u.role_id,
                 u.is_active,
+                u.display_title,
                 r.role_code,
                 r.role_name
             FROM dbo.users u
@@ -180,6 +181,7 @@ def authenticate(username, password):
             "id": row["id"],
             "username": row["username"],
             "full_name": row["full_name"],
+            "display_title": str(row["display_title"] or "").strip(),
             "role_id": row["role_id"],
             "role_code": role_code,
             "role_name": row["role_name"],

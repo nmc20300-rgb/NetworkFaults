@@ -164,12 +164,20 @@ class MainWindow(QMainWindow):
         user_text_layout.setContentsMargins(0, 0, 0, 0)
         user_text_layout.setSpacing(3)
 
-        display_name = (
+        display_title = str(self.current_user.get("display_title", "") or "").strip()
+        raw_name = str(
             self.current_user.get("full_name")
             or self.current_user.get("name")
             or self.current_user.get("username")
             or "مستخدم النظام"
-        )
+        ).strip()
+
+        if display_title == "عميد":
+            display_name = f"سيادة العميد {raw_name}".strip()
+        elif display_title:
+            display_name = f"{display_title} {raw_name}".strip()
+        else:
+            display_name = raw_name
 
         # =====================================================
         # اسم الدور الظاهر للمستخدم
@@ -179,14 +187,16 @@ class MainWindow(QMainWindow):
             self.current_user.get("role_code", "")
         ).strip().upper()
 
-        if role_code == "SUPER_ADMIN":
-            role_name = "عميد أحمد صلاح"
-        elif role_code == "ADMIN":
-            role_name = "Admin"
-        elif role_code == "SUB_ADMIN":
-            role_name = "Sub Admin"
-        else:
-            role_name = "مستخدم"
+        role_titles = {
+            "SUPER_ADMIN": "قائد الشبكة",
+            "ADMIN": "مسؤول النظام",
+            "SUB_ADMIN": "مشرف",
+            "SOLDIER": "عسكري",
+        }
+        role_name = role_titles.get(
+            role_code,
+            str(self.current_user.get("role_name", "") or "مستخدم")
+        )
 
         user_name = QLabel(str(display_name))
         user_name.setObjectName("userName")

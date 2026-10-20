@@ -37,7 +37,7 @@ class LogsPage(QWidget):
         self.setObjectName("logsPage")
 
         self._loading_logs = False
-        self._refresh_interval_ms = 5000
+        self._refresh_interval_ms = 30000  # 30 ثانية — لتجنب عبء الـ query على جدول كبير
 
         self.setup_ui()
         self.load_logs()
