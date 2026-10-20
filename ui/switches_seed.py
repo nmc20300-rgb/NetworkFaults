@@ -1,10 +1,11 @@
 """
 ui/switches_seed.py
 ===================
-قائمة السويتشات المعتمدة وربطها بالمباني والكاميرات.
+قائمة السويتشات المعتمدة وإضافتها للمباني.
 مطابقة لجدول السويتشات الفعلي (38 سويتش): المبنى + الموديل + الغرض فقط،
 وموضع الدور لسويتشات الإدارة لأنه مذكور في الجدول.
 أي بيانات أخرى (المنافذ لغير Cisco، المواضع، الملاحظات) تُدخل يدويًا عند الحاجة.
+ربط الكاميرات بالسويتشات يتم يدويًا فقط (من نافذة الكاميرا أو نافذة ربط السويتش).
 """
 
 from database import get_connection
@@ -82,13 +83,6 @@ SWITCHES_DATA = [
     for code, name, building, location, model, role in _ROWS
 ]
 
-ADMIN_BUILDING = "الإدارة"
-ADMIN_FLOOR_SWITCHES = {
-    "الدور الأرضي": "SW-005",
-    "الدور الأول": "SW-007",
-    "الدور الثاني": "SW-008",
-}
-
 
 def ensure_building_id(cursor, building_name):
     """إيجاد أو إنشاء المبنى وإرجاع ID الخاص به."""
@@ -112,10 +106,11 @@ def ensure_building_id(cursor, building_name):
     return new_row["id"] if new_row else None
 
 
-def seed_network_switches(auto_link=True):
+def seed_network_switches():
     """
-    استيراد السويتشات المعتمدة وربطها بالمباني والكاميرات.
-    يرجع (عدد السويتشات المضافة, عدد الكاميرات المربوطة).
+    استيراد السويتشات المعتمدة وربطها بالمباني فقط.
+    لا يربط أي كاميرا بأي سويتش؛ الربط يدوي.
+    يرجع عدد السويتشات المضافة.
     """
     conn = get_connection()
     try:
@@ -125,116 +120,28 @@ def seed_network_switches(auto_link=True):
         existing_codes = {r["switch_code"] for r in cursor.fetchall()}
 
         added_switches = 0
-        switches_map = {}  # switch_code -> بيانات السويتش
 
         for s in SWITCHES_DATA:
+            if s["code"] in existing_codes:
+                continue
+
             b_id = ensure_building_id(cursor, s["building"])
-
-            if s["code"] not in existing_codes:
-                cursor.execute("""
-                    INSERT INTO network_switches (
-                        switch_code, name, building_id, location_detail,
-                        model, ports_count, role, status, notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, N'يعمل', ?)
-                """, (
-                    s["code"], s["name"], b_id, s["location"],
-                    s["model"], s["ports"], s["role"], s["notes"],
-                ))
-                cursor.execute("SELECT CAST(SCOPE_IDENTITY() AS INT) AS id")
-                sw_id = cursor.fetchone()["id"]
-                added_switches += 1
-            else:
-                cursor.execute("SELECT id FROM network_switches WHERE switch_code = ?", (s["code"],))
-                sw_id = cursor.fetchone()["id"]
-
-            switches_map[s["code"]] = {
-                "id": sw_id,
-                "building_id": b_id,
-                "role": s["role"],
-                "name": s["name"],
-                "location": s["location"],
-            }
+            cursor.execute("""
+                INSERT INTO network_switches (
+                    switch_code, name, building_id, location_detail,
+                    model, ports_count, role, status, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, N'يعمل', ?)
+            """, (
+                s["code"], s["name"], b_id, s["location"],
+                s["model"], s["ports"], s["role"], s["notes"],
+            ))
+            added_switches += 1
 
         conn.commit()
+        return added_switches
 
-        linked_cameras = 0
-        if auto_link:
-            linked_cameras = link_cameras_to_switches(cursor, switches_map)
-            conn.commit()
-
-        return added_switches, linked_cameras
-
+    except Exception:
+        conn.rollback()
+        raise
     finally:
         conn.close()
-
-
-def link_cameras_to_switches(cursor, switches_map=None):
-    """
-    ربط الكاميرات غير المربوطة بالسويتشات حسب المبنى:
-    1. يختار سويتش كاميرات (أو شبكة وكاميرات) في نفس مبنى الكاميرا،
-       وإلا أي سويتش في نفس المبنى.
-    2. في مبنى الإدارة فقط يُوزَّع حسب الدور (أرضي / أول / ثاني).
-    لا يرقّم المنافذ؛ رقم المنفذ يُسجَّل يدويًا لكل كاميرا.
-    """
-    if switches_map is None:
-        cursor.execute(
-            "SELECT id, switch_code, name, building_id, location_detail, role "
-            "FROM network_switches WHERE is_archived = 0"
-        )
-        switches_map = {
-            r["switch_code"]: {
-                "id": r["id"],
-                "building_id": r["building_id"],
-                "role": r["role"] or "",
-                "name": r["name"],
-                "location": r["location_detail"],
-            }
-            for r in cursor.fetchall()
-        }
-
-    # مبنى الإدارة = مبنى سويتشات الأدوار (يتحدد من الربط الفعلي لا من الاسم)
-    admin_building_id = (switches_map.get("SW-005") or {}).get("building_id")
-
-    cursor.execute("""
-        SELECT c.id, c.name, c.building_id, c.location_detail, c.switch_id
-        FROM cameras c
-        WHERE c.is_archived = 0
-    """)
-    cameras = cursor.fetchall()
-
-    linked_count = 0
-
-    for cam in cameras:
-        if cam["switch_id"]:
-            continue
-
-        b_id = cam["building_id"]
-        if not b_id:
-            continue
-
-        matched_switch_id = None
-
-        # توزيع الأدوار يخص مبنى الإدارة فقط
-        if admin_building_id and b_id == admin_building_id:
-            loc_text = f"{cam['location_detail'] or ''} {cam['name'] or ''}"
-            for floor, code in ADMIN_FLOOR_SWITCHES.items():
-                if floor in loc_text:
-                    matched_switch_id = (switches_map.get(code) or {}).get("id")
-                    break
-
-        if not matched_switch_id:
-            in_building = [s for s in switches_map.values() if s["building_id"] == b_id]
-            camera_switches = [s for s in in_building if "كاميرا" in (s["role"] or "")]
-            candidates = camera_switches or in_building
-            if candidates:
-                matched_switch_id = candidates[0]["id"]
-
-        if matched_switch_id:
-            cursor.execute("""
-                UPDATE cameras
-                SET switch_id = ?, switch_port = NULL, updated_at = GETDATE()
-                WHERE id = ?
-            """, (matched_switch_id, cam["id"]))
-            linked_count += 1
-
-    return linked_count

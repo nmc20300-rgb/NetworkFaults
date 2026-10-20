@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QDialog,
     QFrame,
+    QComboBox,
     QHBoxLayout,
     QLabel,
     QMessageBox,
@@ -140,11 +141,22 @@ class DelayReasonDialog(QDialog):
         info.setWordWrap(True)
         layout.addWidget(info)
 
-        layout.addWidget(QLabel("اكتب سبب التأخير (مطلوب لحفظ التأكيد):"))
+        layout.addWidget(QLabel("اختر سبب التأخير (مطلوب لحفظ التأكيد):"))
+        self.reason_choice = QComboBox()
+        self.reason_choice.addItem("اختر سببًا…", "")
+        self.reason_choice.addItem(
+            "لم أكن متاحًا قرب الجهاز وقت التبديل",
+            "لم أكن متاحًا قرب الجهاز وقت التبديل",
+        )
+        self.reason_choice.addItem("سبب آخر", "__other__")
+        self.reason_choice.currentIndexChanged.connect(self._on_reason_choice_changed)
+        layout.addWidget(self.reason_choice)
+
         self.edit = QPlainTextEdit()
         self.edit.setFixedHeight(90)
-        self.edit.setPlaceholderText("مثال: انقطاع الكهرباء / عطل في الوحدة الاحتياطية …")
+        self.edit.setPlaceholderText("اكتب سبب التأخير هنا…")
         self.edit.textChanged.connect(self._validate)
+        self.edit.hide()
         layout.addWidget(self.edit)
 
         buttons = QHBoxLayout()
@@ -160,11 +172,25 @@ class DelayReasonDialog(QDialog):
         buttons.addStretch(1)
         layout.addLayout(buttons)
 
+    def _on_reason_choice_changed(self, _index):
+        is_other = self.reason_choice.currentData() == "__other__"
+        self.edit.setVisible(is_other)
+        if not is_other:
+            self.edit.clear()
+        self._validate()
+
     def _validate(self):
-        self.save_button.setEnabled(bool(self.edit.toPlainText().strip()))
+        choice = self.reason_choice.currentData()
+        if choice == "__other__":
+            self.save_button.setEnabled(bool(self.edit.toPlainText().strip()))
+        else:
+            self.save_button.setEnabled(bool(choice))
 
     def reason(self):
-        return self.edit.toPlainText().strip()[:500]
+        choice = self.reason_choice.currentData()
+        if choice == "__other__":
+            return self.edit.toPlainText().strip()[:500]
+        return str(choice or "")[:500]
 
 
 # =============================================================

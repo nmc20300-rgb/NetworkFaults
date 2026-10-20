@@ -107,7 +107,6 @@ class MainWindow(QMainWindow):
             "assets",
             "nmc_logo3.png",
         )
-
         logo_pixmap = QPixmap(logo_path)
 
         if not logo_pixmap.isNull():
@@ -215,7 +214,6 @@ class MainWindow(QMainWindow):
 
         section_label = QLabel("التشغيل اليومي")
         section_label.setObjectName("sectionLabel")
-
         sidebar_layout.addWidget(section_label)
         sidebar_layout.addSpacing(7)
 

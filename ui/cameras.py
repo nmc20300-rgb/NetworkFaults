@@ -55,7 +55,7 @@ from ui.faults_page import (
     clear_datetime,
     keep_calendar_on_today,
 )
-from ui.switches_seed import seed_network_switches, link_cameras_to_switches
+from ui.switches_seed import seed_network_switches
 
 
 # =============================================================
@@ -2236,7 +2236,6 @@ class CamerasPage(QWidget):
         self.add_fault_button.setVisible(can_add)
         self.more_button.setVisible(can_reports or can_add)
         self.act_import.setVisible(can_add)
-        self.act_autolink.setVisible(can_add)
 
         for action in self.report_actions:
             action.setVisible(can_reports)
@@ -2310,9 +2309,6 @@ class CamerasPage(QWidget):
         self.act_refresh = menu.addAction("  ⟳ تحديث البيانات")
         self.act_refresh.triggered.connect(self.refresh_all)
         menu.addSeparator()
-
-        self.act_autolink = menu.addAction("   إعادة ربط الكاميرات بالسويتشات تلقائيًا...")
-        self.act_autolink.triggered.connect(self.auto_link_all_switches)
 
         self.act_import = menu.addAction("   استيراد توزيع الكاميرات الأولي (35 موقعًا)...")
         self.act_import.triggered.connect(self.import_initial_distribution)
@@ -2741,7 +2737,7 @@ class CamerasPage(QWidget):
 
             m_values = [
                 make_item(c["camera_code"], bold=True),
-                make_item(c["name"], bold=True, align_right=True, tooltip=name_tip or None),
+                make_item(c["name"], bold=True, tooltip=name_tip or None),
                 make_item(c["building_name"] or "-", align_right=True),
                 make_item(switch_str, align_right=True,
                           tooltip=f"كود: {c['switch_code']}" if c["switch_code"] else "غير مربوط بسويتش"),
@@ -3044,29 +3040,6 @@ class CamerasPage(QWidget):
             self.load_switches()
             self.load_cameras()
             self.show_notice("تم تحديث ربط الكاميرات بالسويتش")
-
-    def auto_link_all_switches(self):
-        ans = QMessageBox.question(
-            self, "ربط الكاميرات بالسويتشات تلقائيًا",
-            "سيقوم النظام بفحص جميع الكاميرات غير المربوطة ومطابقتها تلقائيًا بالسويتشات المخصصة لها في نفس المبنى والدور.\n\nهل تريد المتابعة؟",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes,
-        )
-        if ans != QMessageBox.Yes:
-            return
-
-        conn = get_connection()
-        try:
-            cur = conn.cursor()
-            linked = link_cameras_to_switches(cur)
-            conn.commit()
-            QMessageBox.information(self, "اكتمل الربط التلقائي", f"تم ربط {linked} كاميرا بنجاح بالسويتشات المناسبة لها.")
-            self.load_switches()
-            self.load_cameras()
-        except Exception as exc:
-            conn.rollback()
-            QMessageBox.critical(self, "خطأ", f"تعذر الربط التلقائي:\n{exc}")
-        finally:
-            conn.close()
 
     # =========================================================
     # تحميل بلاغات الأعطال

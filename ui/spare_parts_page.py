@@ -1,4 +1,4 @@
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QTextDocument
 from PySide6.QtPrintSupport import QPrinter, QPrintPreviewDialog
 from PySide6.QtWidgets import (
@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QTableWidget, QTableWidgetItem, QHeaderView,
     QDialog, QFormLayout, QDialogButtonBox, QSpinBox, QDoubleSpinBox,
     QMessageBox, QComboBox, QPlainTextEdit, QFrame, QTabWidget,
-    QCheckBox, QInputDialog, QProgressBar
+    QCheckBox, QInputDialog, QButtonGroup
 )
 
 from database import get_connection, write_audit_log
@@ -14,8 +14,12 @@ from ui.reports_page import ReportsPage
 
 APP_STYLE = """
 #sparePage {
-    background: #f3f6f9;
+    background: #f5f7fa;
 }
+
+QWidget { font-family: "Segoe UI", "Noto Sans Arabic", Arial; }
+QToolTip { background: #102a43; color: white; border: 0; padding: 6px 9px; }
+
 
 QTabWidget::pane {
     background: white;
@@ -47,8 +51,8 @@ QTabBar::tab:hover:!selected {
 }
 
 #pageTitle {
-    color: #0f2338;
-    font-size: 25px;
+    color: #102a43;
+    font-size: 23px;
     font-weight: 800;
 }
 
@@ -77,13 +81,13 @@ QTabBar::tab:hover:!selected {
 
 #statTitle {
     color: #475569;
-    font-size: 13px;
+    font-size: 12px;
     font-weight: 700;
 }
 
 #statValue {
-    color: #0f2338;
-    font-size: 32px;
+    color: #102a43;
+    font-size: 28px;
     font-weight: 800;
 }
 
@@ -94,9 +98,14 @@ QTabBar::tab:hover:!selected {
 
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QPlainTextEdit {
     background: white;
-    border: 1px solid #cbd5e1;
-    border-radius: 8px;
-    padding: 7px;
+    color: #102a43;
+    border: 1px solid #d7e0e8;
+    border-radius: 9px;
+    padding: 9px 11px;
+    min-height: 20px;
+}
+QLineEdit:hover, QComboBox:hover, QSpinBox:hover, QDoubleSpinBox:hover {
+    border-color: #94a3b8;
 }
 
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus,
@@ -106,10 +115,13 @@ QPlainTextEdit:focus {
 
 QPushButton {
     border: none;
-    border-radius: 8px;
-    padding: 9px 16px;
+    border-radius: 9px;
+    padding: 9px 14px;
+    min-height: 20px;
     font-weight: 700;
 }
+QPushButton:focus { outline: none; border: 2px solid #67c4d5; }
+QPushButton:disabled { color: #9aa9b8; background: #edf1f5; border-color: #edf1f5; }
 
 #primaryButton {
     background: #0891b2;
@@ -162,19 +174,22 @@ QPushButton {
 
 QTableWidget {
     background: white;
-    border: 1px solid #e2e8f0;
+    color: #243b53;
+    border: 1px solid #e3eaf0;
     border-radius: 12px;
     gridline-color: #f1f5f9;
-    selection-background-color: #e0f2fe;
-    selection-color: #0f2338;
+    selection-background-color: #e6f5f8;
+    selection-color: #102a43;
+    alternate-background-color: #f8fafc;
+    outline: none;
 }
 
 QHeaderView::section {
     background: #f8fafc;
     color: #0f2338;
-    padding: 10px;
+    padding: 11px 8px;
     border: none;
-    border-bottom: 2px solid #0891b2;
+    border-bottom: 2px solid #d6e2ea;
     font-weight: 700;
 }
 
@@ -263,6 +278,21 @@ QCheckBox {
     border-radius: 8px;
     font-weight: 800;
 }
+
+/* --- Filter chips --- */
+#chip {
+    background: white;
+    color: #475569;
+    border: 1px solid #d7e0e8;
+    border-radius: 17px;
+    padding: 6px 16px;
+    font-weight: 700;
+}
+#chip:hover { background: #f1f5f9; }
+#chip:checked { background: #e0f2fe; color: #0e7490; border: 1px solid #0891b2; }
+#chip[tone="missing"]:checked   { background: #fbe8e8; color: #a33a3a; border: 1px solid #f0b4b4; }
+#chip[tone="minimum"]:checked   { background: #fff6e0; color: #a9790a; border: 1px solid #f0d28a; }
+#chip[tone="available"]:checked { background: #e8f6ee; color: #1f8a53; border: 1px solid #a8dcbe; }
 """
 
 STATUS_AVAILABLE = "متوفرة"
@@ -346,19 +376,19 @@ class CategoryManagementDialog(QDialog):
         self.setObjectName("dialogRoot")
         self.setStyleSheet(APP_STYLE)
         self.setLayoutDirection(Qt.RightToLeft)
-        self.resize(660, 580)
-        self.setMinimumSize(560, 480)
+        self.resize(760, 640)
+        self.setMinimumSize(620, 520)
         self._rows = []
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(20, 20, 20, 18)
-        root.setSpacing(12)
+        root.setContentsMargins(22, 20, 22, 18)
+        root.setSpacing(14)
 
         # ---------- الهيدر ----------
         header = QFrame()
         header.setObjectName("dialogHeader")
         hl = QHBoxLayout(header)
-        hl.setContentsMargins(16, 13, 16, 13)
+        hl.setContentsMargins(18, 16, 18, 16)
         icon = QLabel("🏷")
         icon.setObjectName("dialogHeaderIcon")
         icon.setAlignment(Qt.AlignCenter)
@@ -367,7 +397,7 @@ class CategoryManagementDialog(QDialog):
         text = QVBoxLayout()
         title = QLabel("إدارة التصنيفات")
         title.setObjectName("dialogTitle")
-        hint = QLabel("التصنيف المعطّل يختفي من الفلتر ومن قائمة الإضافة، والقطع القديمة تفضل زي ما هي")
+        hint = QLabel("أضف التصنيفات ونظّمها. تعطيل التصنيف يخفيه من الاختيارات دون التأثير على القطع المرتبطة به.")
         hint.setObjectName("dialogHint")
         text.addWidget(title)
         text.addWidget(hint)
@@ -378,9 +408,12 @@ class CategoryManagementDialog(QDialog):
         # ---------- إضافة تصنيف ----------
         add_row = QHBoxLayout()
         self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("اكتب اسم تصنيف جديد ثم اضغط Enter...")
-        self.add_btn = QPushButton("＋ إضافة")
+        self.name_input.setPlaceholderText("اكتب اسم التصنيف الجديد")
+        self.name_input.setClearButtonEnabled(True)
+        self.name_input.setMinimumHeight(42)
+        self.add_btn = QPushButton("إضافة تصنيف")
         self.add_btn.setObjectName("primaryButton")
+        self.add_btn.setMinimumHeight(42)
         add_row.addWidget(self.name_input, 1)
         add_row.addWidget(self.add_btn)
         root.addLayout(add_row)
@@ -388,10 +421,12 @@ class CategoryManagementDialog(QDialog):
         # ---------- بحث + إظهار المعطّلة ----------
         filter_row = QHBoxLayout()
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔍 ابحث في التصنيفات...")
+        self.search_input.setPlaceholderText("ابحث باسم التصنيف...")
         self.search_input.setClearButtonEnabled(True)
+        self.search_input.setMinimumHeight(40)
         self.show_inactive = QCheckBox("إظهار المعطّلة")
         self.show_inactive.setChecked(True)
+        self.show_inactive.setToolTip("إظهار التصنيفات المعطّلة ضمن النتائج")
         filter_row.addWidget(self.search_input, 1)
         filter_row.addWidget(self.show_inactive)
         root.addLayout(filter_row)
@@ -408,6 +443,12 @@ class CategoryManagementDialog(QDialog):
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setShowGrid(False)
+        self.table.setAlternatingRowColors(True)
+        self.table.setWordWrap(False)
+        self.table.verticalHeader().setDefaultSectionSize(42)
+        header_view.setHighlightSections(False)
+        header_view.setMinimumHeight(42)
         root.addWidget(self.table, 1)
 
         # ---------- سطر الحالة / الرسائل ----------
@@ -423,12 +464,17 @@ class CategoryManagementDialog(QDialog):
 
         # ---------- الأزرار ----------
         buttons = QHBoxLayout()
-        self.rename_btn = QPushButton("✎ إعادة تسمية")
+        self.rename_btn = QPushButton("إعادة تسمية")
         self.rename_btn.setObjectName("secondaryButton")
-        self.toggle_btn = QPushButton("تفعيل / تعطيل")
+        self.rename_btn.setMinimumHeight(40)
+        self.rename_btn.setToolTip("إعادة تسمية التصنيف المحدد")
+        self.toggle_btn = QPushButton("تعطيل التصنيف")
         self.toggle_btn.setObjectName("secondaryButton")
+        self.toggle_btn.setMinimumHeight(40)
+        self.toggle_btn.setToolTip("تغيير حالة التصنيف المحدد")
         self.close_btn = QPushButton("إغلاق")
         self.close_btn.setObjectName("primaryButton")
+        self.close_btn.setMinimumHeight(40)
         buttons.addWidget(self.rename_btn)
         buttons.addWidget(self.toggle_btn)
         buttons.addStretch()
@@ -673,91 +719,21 @@ def spare_part_audit_data(part):
     return snapshot
 
 
-class StatCard(QFrame):
-    """كارت إحصائية: أيقونة ملوّنة + رقم كبير + نسبة + شريط تقدم. قابل للضغط للفلترة."""
+class FilterChip(QPushButton):
+    """زرار فلتر صغير بيعرض العدد."""
 
-    clicked = Signal()
-
-    def __init__(self, title, accent="#0891b2", tint="#e0f2fe"):
+    def __init__(self, label, tone="all"):
         super().__init__()
-        self.accent = accent
-        self.tint = tint
-        self._active = False
-        self.setObjectName("statCard")
+        self.label = label
+        self.setObjectName("chip")
+        self.setProperty("tone", tone)
+        self.setCheckable(True)
         self.setCursor(Qt.PointingHandCursor)
-        self.setMinimumHeight(118)
+        self.setMinimumHeight(34)
+        self.set_count(0)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(6)
-
-        top = QHBoxLayout()
-        top.setSpacing(10)
-        self.dot = QLabel()
-        self.dot.setFixedSize(10, 10)
-        self.dot.setStyleSheet(f"background: {accent}; border-radius: 5px;")
-        top.addWidget(self.dot)
-        title_label = QLabel(title)
-        title_label.setObjectName("statTitle")
-        top.addWidget(title_label)
-        top.addStretch()
-        layout.addLayout(top)
-
-        self.value_label = QLabel("0")
-        self.value_label.setObjectName("statValue")
-        layout.addWidget(self.value_label)
-
-        self.sub_label = QLabel("")
-        self.sub_label.setObjectName("statSub")
-        layout.addWidget(self.sub_label)
-
-        self.bar = QProgressBar()
-        self.bar.setRange(0, 100)
-        self.bar.setTextVisible(False)
-        self.bar.setFixedHeight(6)
-        self.bar.setStyleSheet(
-            "QProgressBar { background: #eef2f6; border: none; border-radius: 3px; }"
-            f"QProgressBar::chunk {{ background: {accent}; border-radius: 3px; }}"
-        )
-        layout.addWidget(self.bar)
-
-        self._apply_style()
-
-    def _apply_style(self):
-        if self._active:
-            bg, border = self.tint, self.accent
-        else:
-            bg, border = "white", "#e2e8f0"
-        hover_bg = self.tint if self._active else "#f8fafc"
-        self.setStyleSheet(f"""
-            #statCard {{
-                background: {bg};
-                border: 1px solid {border};
-                border-right: 4px solid {self.accent};
-                border-radius: 14px;
-            }}
-            #statCard:hover {{
-                background: {hover_bg};
-                border: 1px solid {self.accent};
-                border-right: 4px solid {self.accent};
-            }}
-        """)
-
-    def set_active(self, active):
-        if active != self._active:
-            self._active = active
-            self._apply_style()
-
-    def set_data(self, value, total, subtitle=None):
-        self.value_label.setText(str(value))
-        percent = round(value * 100 / total) if total else 0
-        self.bar.setValue(percent)
-        self.sub_label.setText(subtitle if subtitle else f"{percent}% من الأصناف")
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.clicked.emit()
-        super().mousePressEvent(event)
+    def set_count(self, count):
+        self.setText(f"{self.label}   {count}")
 
 
 class SparePartDialog(QDialog):
@@ -1213,7 +1189,7 @@ class SparePartsPage(QWidget):
 
     def setup_ui(self):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(10, 10, 10, 10)
+        outer.setContentsMargins(12, 10, 12, 10)
         outer.setSpacing(0)
 
         self.tabs = QTabWidget()
@@ -1223,136 +1199,153 @@ class SparePartsPage(QWidget):
 
         parts_tab = QWidget()
         main = QVBoxLayout(parts_tab)
-        main.setContentsMargins(25, 25, 25, 25)
+        main.setContentsMargins(26, 20, 26, 16)
         main.setSpacing(14)
 
+        # ---------- الهيدر ----------
         header = QHBoxLayout()
+        header.setSpacing(8)
         title_box = QVBoxLayout()
+        title_box.setSpacing(2)
         title = QLabel("إدارة قطع الغيار")
         title.setObjectName("pageTitle")
-        title_box.addWidget(title)
-        subtitle = QLabel(
-            "متابعة المخزون والناقص والحد الأدنى وحركات الصرف والإضافة"
-        )
+        subtitle = QLabel("المخزون والناقص وحركات الصرف والإضافة")
         subtitle.setObjectName("pageSubtitle")
+        title_box.addWidget(title)
         title_box.addWidget(subtitle)
         header.addLayout(title_box)
         header.addStretch()
 
-        self.add_button = QPushButton(" إضافة قطعة")
+        self.add_button = QPushButton("＋  إضافة قطعة")
         self.add_button.setObjectName("primaryButton")
-        self.edit_button = QPushButton("✎ تعديل")
-        self.edit_button.setObjectName("secondaryButton")
-        self.movement_button = QPushButton("↕ حركة مخزون")
-        self.movement_button.setObjectName("secondaryButton")
+        self.categories_button = QPushButton("التصنيفات")
+        self.categories_button.setObjectName("secondaryButton")
         self.history_button = QPushButton("سجل الحركات")
         self.history_button.setObjectName("secondaryButton")
-        self.delete_button = QPushButton("حذف")
-        self.delete_button.setObjectName("dangerButton")
-        self.print_button = QPushButton("طباعة التفاصيل")
-        self.print_button.setObjectName("secondaryButton")
-        self.categories_button = QPushButton("إدارة التصنيفات")
-        self.categories_button.setObjectName("secondaryButton")
-
-        header.addWidget(self.categories_button)
-        header.addWidget(self.add_button)
-        header.addWidget(self.edit_button)
-        header.addWidget(self.movement_button)
-        header.addWidget(self.history_button)
-        header.addWidget(self.delete_button)
-        header.addWidget(self.print_button)
+        for b in (self.add_button, self.categories_button, self.history_button):
+            b.setMinimumHeight(38)
+            header.addWidget(b)
         main.addLayout(header)
 
-        cards = QHBoxLayout()
-        cards.setSpacing(14)
-        self.missing_card = StatCard("قطع ناقصة", "#dc2626", "#fef2f2")
-        self.minimum_card = StatCard("وصلت للحد الأدنى", "#d97706", "#fffbeb")
-        self.available_card = StatCard("متوفرة", "#16a34a", "#f0fdf4")
-        self.total_card = StatCard("إجمالي الأصناف", "#0891b2", "#f0f9ff")
-        cards.addWidget(self.missing_card)
-        cards.addWidget(self.minimum_card)
-        cards.addWidget(self.available_card)
-        cards.addWidget(self.total_card)
-        main.addLayout(cards)
-
+        # ---------- البحث + التصنيف ----------
         search_row = QHBoxLayout()
+        search_row.setSpacing(8)
         self.search_box = QLineEdit()
-        self.search_box.setPlaceholderText(
-            "ابحث باسم القطعة أو رقم القطعة أو المورد..."
-        )
-        self.filter_box = QComboBox()
-        self.filter_box.addItems([
-            "كل القطع",
-            "القطع الناقصة",
-            "عند الحد الأدنى",
-            "المتوفرة"
-        ])
+        self.search_box.setPlaceholderText("ابحث بالاسم أو رقم القطعة أو الرقم التسلسلي أو المورد...")
+        self.search_box.setClearButtonEnabled(True)
+        self.search_box.setMinimumHeight(42)
         self.category_filter = QComboBox()
         self.category_filter.addItem("كل التصنيفات", None)
-
+        self.category_filter.setMinimumSize(170, 42)
         search_row.addWidget(self.search_box, 1)
         search_row.addWidget(self.category_filter)
-        search_row.addWidget(self.filter_box)
         main.addLayout(search_row)
 
+        # فلتر الحالة القديم بيفضل موجود للمنطق بس، والـ chips هي الواجهة
+        self.filter_box = QComboBox()
+        self.filter_box.addItems(["كل القطع", "القطع الناقصة", "عند الحد الأدنى", "المتوفرة"])
+        self.filter_box.hide()
+
+        # ---------- Chips ----------
+        chips_row = QHBoxLayout()
+        chips_row.setSpacing(8)
+        self.chip_all = FilterChip("الكل", "all")
+        self.chip_missing = FilterChip("ناقصة", "missing")
+        self.chip_minimum = FilterChip("عند الحد الأدنى", "minimum")
+        self.chip_available = FilterChip("متوفرة", "available")
+        self._chips = [
+            (self.chip_all, "كل القطع"),
+            (self.chip_missing, "القطع الناقصة"),
+            (self.chip_minimum, "عند الحد الأدنى"),
+            (self.chip_available, "المتوفرة"),
+        ]
+        self.chip_group = QButtonGroup(self)
+        self.chip_group.setExclusive(True)
+        for chip, filter_text in self._chips:
+            self.chip_group.addButton(chip)
+            chips_row.addWidget(chip)
+            chip.clicked.connect(lambda _=False, t=filter_text: self.filter_box.setCurrentText(t))
+        self.chip_all.setChecked(True)
+        chips_row.addStretch()
+        main.addLayout(chips_row)
+
+        # ---------- الجدول ----------
         self.table = QTableWidget()
         self.table.setColumnCount(11)
         self.table.setHorizontalHeaderLabels([
-            "ID",
-            "رقم القطعة",
-            "اسم القطعة",
-            "التصنيف",
-            "S/N",
-            "المتاح",
-            "الحد الأدنى",
-            "المطلوب",
-            "الحالة",
-            "المورد",
-            "مكان التخزين",
+            "ID", "رقم القطعة", "اسم القطعة", "التصنيف", "S/N",
+            "المتاح", "الحد الأدنى", "المطلوب", "الحالة", "المورد", "مكان التخزين",
         ])
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
         self.table.setSelectionMode(QTableWidget.SingleSelection)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setShowGrid(False)
+        self.table.setAlternatingRowColors(True)
+        self.table.setWordWrap(False)
         self.table.verticalHeader().setVisible(False)
-        self.table.setColumnHidden(0, True)
-        self.table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Stretch
-        )
+        self.table.verticalHeader().setDefaultSectionSize(44)
+        hv = self.table.horizontalHeader()
+        hv.setHighlightSections(False)
+        hv.setMinimumHeight(42)
+        hv.setMinimumSectionSize(90)
+        hv.setSectionResizeMode(QHeaderView.ResizeToContents)
+        hv.setSectionResizeMode(2, QHeaderView.Stretch)   # الاسم هو اللي بيتمدد
+        for hidden_col in (0, 6, 7):                      # ID + الحد الأدنى + المطلوب (في tooltip)
+            self.table.setColumnHidden(hidden_col, True)
         main.addWidget(self.table, 1)
 
-        pagination_row = QHBoxLayout()
+        # ---------- الصف السفلي: أزرار الصف المحدد + الصفحات ----------
+        self.edit_button = QPushButton("تعديل")
+        self.edit_button.setObjectName("secondaryButton")
+        self.movement_button = QPushButton("حركة مخزون")
+        self.movement_button.setObjectName("secondaryButton")
+        self.print_button = QPushButton("طباعة")
+        self.print_button.setObjectName("secondaryButton")
+        self.delete_button = QPushButton("حذف")
+        self.delete_button.setObjectName("dangerButton")
+        self.edit_button.setToolTip("تعديل الصنف المحدد")
+        self.movement_button.setToolTip("تسجيل إضافة أو صرف أو إرجاع")
+        self.print_button.setToolTip("معاينة وطباعة تفاصيل الصنف")
+        self.delete_button.setToolTip("حذف الصنف المحدد")
+
+        self.selection_bar = QWidget()
+        sel = QHBoxLayout(self.selection_bar)
+        sel.setContentsMargins(0, 0, 0, 0)
+        sel.setSpacing(6)
+        for b in (self.edit_button, self.movement_button, self.print_button, self.delete_button):
+            b.setMinimumHeight(34)
+            sel.addWidget(b)
+
+        bottom = QHBoxLayout()
+        bottom.setSpacing(8)
+        bottom.addWidget(self.selection_bar)
+        bottom.addStretch()
+
         self.stats_label = QLabel("")
-        self.stats_label.setStyleSheet("color: #64748b; font-size: 11px;")
-        pagination_row.addWidget(self.stats_label)
-        pagination_row.addStretch()
+        self.stats_label.setObjectName("pageSubtitle")
+        bottom.addWidget(self.stats_label)
 
-        self.previous_button = QPushButton("◀  السابق")
+        self.previous_button = QPushButton("◀")
         self.previous_button.setObjectName("secondaryButton")
-        self.previous_button.setMinimumHeight(32)
+        self.previous_button.setFixedSize(38, 34)
         self.previous_button.clicked.connect(self._previous_page)
-
-        self.page_label = QLabel("صفحة 1 / 1")
+        self.page_label = QLabel("1 / 1")
         self.page_label.setAlignment(Qt.AlignCenter)
-        self.page_label.setStyleSheet("font-weight: 700; min-width: 90px;")
-
-        self.next_button = QPushButton("التالي  ▶")
+        self.page_label.setStyleSheet("font-weight: 700; min-width: 60px;")
+        self.next_button = QPushButton("▶")
         self.next_button.setObjectName("secondaryButton")
-        self.next_button.setMinimumHeight(32)
+        self.next_button.setFixedSize(38, 34)
         self.next_button.clicked.connect(self._next_page)
+        bottom.addWidget(self.previous_button)
+        bottom.addWidget(self.page_label)
+        bottom.addWidget(self.next_button)
+        main.addLayout(bottom)
 
-        pagination_row.addWidget(self.previous_button)
-        pagination_row.addWidget(self.page_label)
-        pagination_row.addWidget(self.next_button)
-        main.addLayout(pagination_row)
-
+        # ---------- الربط ----------
         self.search_box.textChanged.connect(self._reset_page_and_load_parts)
         self.filter_box.currentIndexChanged.connect(self._reset_page_and_load_parts)
         self.category_filter.currentIndexChanged.connect(self._reset_page_and_load_parts)
         self.categories_button.clicked.connect(self.manage_categories)
-        self.missing_card.clicked.connect(lambda: self.toggle_status_filter("القطع الناقصة"))
-        self.minimum_card.clicked.connect(lambda: self.toggle_status_filter("عند الحد الأدنى"))
-        self.available_card.clicked.connect(lambda: self.toggle_status_filter("المتوفرة"))
-        self.total_card.clicked.connect(lambda: self.filter_box.setCurrentIndex(0))
         self.add_button.clicked.connect(self.add_part)
         self.edit_button.clicked.connect(self.edit_part)
         self.movement_button.clicked.connect(self.add_movement)
@@ -1402,22 +1395,8 @@ class SparePartsPage(QWidget):
         return "متوفر"
 
     def update_action_buttons(self):
-        """أزرار التعديل والحركة والحذف تتفعل فقط عند اختيار قطعة."""
-        has_selection = bool(self.table.selectedItems())
-        for button in (
-            self.edit_button,
-            self.movement_button,
-            self.delete_button,
-            self.print_button,
-        ):
-            button.setEnabled(has_selection)
-
-    def toggle_status_filter(self, filter_text):
-        """الضغط على كارت يفلتر بحالته، والضغط مرة تانية يرجّع كل القطع."""
-        if self.filter_box.currentText() == filter_text:
-            self.filter_box.setCurrentIndex(0)
-        else:
-            self.filter_box.setCurrentText(filter_text)
+        """أزرار الصف المحدد تظهر فقط عند اختيار قطعة."""
+        self.selection_bar.setVisible(bool(self.table.selectedItems()))
 
     def _reset_page_and_load_parts(self, *_args):
         self._page = 0
@@ -1474,7 +1453,7 @@ class SparePartsPage(QWidget):
         connection.close()
 
         # الإحصائيات تُحسب على كل النتائج (بعد البحث والتصنيف) بغض النظر عن فلتر الحالة،
-        # عشان الكروت تفضل ثابتة وتتحسب النسب صح.
+        # عشان الأعداد على الـ chips تفضل ثابتة.
         missing_count = 0
         minimum_count = 0
         available_count = 0
@@ -1547,23 +1526,23 @@ class SparePartsPage(QWidget):
             for column, value in enumerate(values):
                 item = QTableWidgetItem(str(value))
                 item.setTextAlignment(Qt.AlignCenter)
-                if column == 7:
+                if column == 5:
+                    item.setToolTip(f"الحد الأدنى: {minimum}   |   المطلوب: {required}")
+                if column == 8:
                     item.setForeground(status_color)
                     item.setBackground(status_bg)
                 self.table.setItem(row, column, item)
 
         overall_total = missing_count + minimum_count + available_count
-        self.total_card.set_data(overall_total, overall_total, "كل الأصناف المطابقة للبحث")
-        self.missing_card.set_data(missing_count, overall_total)
-        self.minimum_card.set_data(minimum_count, overall_total)
-        self.available_card.set_data(available_count, overall_total)
+        self.chip_all.set_count(overall_total)
+        self.chip_missing.set_count(missing_count)
+        self.chip_minimum.set_count(minimum_count)
+        self.chip_available.set_count(available_count)
+        for chip, filter_text in self._chips:
+            if filter_value == filter_text:
+                chip.setChecked(True)
 
-        self.total_card.set_active(filter_value == "كل القطع")
-        self.missing_card.set_active(filter_value == "القطع الناقصة")
-        self.minimum_card.set_active(filter_value == "عند الحد الأدنى")
-        self.available_card.set_active(filter_value == "المتوفرة")
-
-        self.page_label.setText(f"صفحة {self._page + 1} / {total_pages}")
+        self.page_label.setText(f"{self._page + 1} / {total_pages}")
         self.previous_button.setEnabled(self._page > 0)
         self.next_button.setEnabled(self._page < total_pages - 1)
         self.stats_label.setText(
