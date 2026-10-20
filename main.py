@@ -190,8 +190,8 @@ class MainWindow(QMainWindow):
         role_titles = {
             "SUPER_ADMIN": "قائد الشبكة",
             "ADMIN": "مسؤول النظام",
-            "SUB_ADMIN": "مشرف",
-            "SOLDIER": "عسكري",
+            "SUB_ADMIN": "صف ظابط",
+            "SOLDIER": "جندي",
         }
         role_name = role_titles.get(
             role_code,
